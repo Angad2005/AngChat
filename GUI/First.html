@@ -3,9 +3,42 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini</title>
+    <title>AngChat</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
+
+  :root {
+    /* Dark Theme (Default) */
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #1e1e2e;
+    --bg-tertiary: #2a2a3e;
+    --bg-hover: #3a3a4e;
+    --text-primary: #e8eaed;
+    --text-secondary: #c4c7c5;
+    --text-muted: #7a7f85;
+    --border-color: #3a3a4e;
+    --input-bg: #2a2a3e;
+    --message-user-bg: #3a3a5e;
+    --message-ai-bg: transparent;
+    --scrollbar-thumb: #3a3a4e;
+    --glow-color: rgba(66, 133, 244, 0.15);
+  }
+
+  [data-theme="light"] {
+    --bg-primary: #f8f9fa;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #f1f3f4;
+    --bg-hover: #e8eaed;
+    --text-primary: #202124;
+    --text-secondary: #5f6368;
+    --text-muted: #80868b;
+    --border-color: #dadce0;
+    --input-bg: #ffffff;
+    --message-user-bg: #d2e3fc;
+    --message-ai-bg: transparent;
+    --scrollbar-thumb: #bdc1c6;
+    --glow-color: rgba(66, 133, 244, 0.08);
+  }
 
   * {
     margin: 0;
@@ -15,24 +48,25 @@
 
   body {
     font-family: 'Inter', 'Google Sans', sans-serif;
-    background-color: #1a1a2e;
-    color: #e0e0e0;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
     display: flex;
     height: 100vh;
     overflow: hidden;
+    transition: background-color 0.3s ease, color 0.3s ease;
   }
 
   /* Sidebar */
   .sidebar {
     width: 280px;
     min-width: 280px;
-    background-color: #1e1e2e;
+    background-color: var(--bg-secondary);
     display: flex;
     flex-direction: column;
     padding: 12px 8px;
     overflow-y: auto;
-    border-right: 1px solid #2a2a3e;
-    transition: width 0.3s ease, min-width 0.3s ease, padding 0.3s ease, opacity 0.3s ease;
+    border-right: 1px solid var(--border-color);
+    transition: width 0.3s ease, min-width 0.3s ease, padding 0.3s ease, opacity 0.3s ease, background-color 0.3s ease;
   }
 
   .sidebar.collapsed {
@@ -49,7 +83,7 @@
   }
 
   .sidebar::-webkit-scrollbar-thumb {
-    background: #3a3a4e;
+    background: var(--scrollbar-thumb);
     border-radius: 4px;
   }
 
@@ -83,25 +117,26 @@
   .logo-text {
     font-size: 18px;
     font-weight: 500;
-    color: #e8eaed;
+    color: var(--text-primary);
   }
 
-  .sidebar-toggle {
+  .sidebar-toggle, .toggle-sidebar-btn, .settings-btn, .mic-btn, .plus-btn {
     background: none;
     border: none;
-    color: #9aa0a6;
+    color: var(--text-muted);
     cursor: pointer;
     padding: 8px;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.2s;
+    transition: background 0.2s, color 0.2s;
     flex-shrink: 0;
   }
 
-  .sidebar-toggle:hover {
-    background: #2a2a3e;
+  .sidebar-toggle:hover, .toggle-sidebar-btn:hover, .settings-btn:hover, .mic-btn:hover, .plus-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
   }
 
   .nav-item {
@@ -112,8 +147,8 @@
     border-radius: 24px;
     cursor: pointer;
     font-size: 14px;
-    color: #c4c7c5;
-    transition: background 0.2s;
+    color: var(--text-secondary);
+    transition: background 0.2s, color 0.2s;
     text-decoration: none;
     margin-bottom: 2px;
     white-space: nowrap;
@@ -121,12 +156,13 @@
   }
 
   .nav-item:hover {
-    background: #2a2a3e;
+    background: var(--bg-hover);
+    color: var(--text-primary);
   }
 
   .nav-item.active {
-    background: #2a2a3e;
-    color: #e8eaed;
+    background: var(--bg-hover);
+    color: var(--text-primary);
   }
 
   .nav-item svg {
@@ -137,7 +173,7 @@
 
   .section-label {
     font-size: 12px;
-    color: #7a7f85;
+    color: var(--text-muted);
     padding: 16px 12px 8px;
     font-weight: 500;
     white-space: nowrap;
@@ -169,28 +205,10 @@
 
   .user-name {
     font-size: 14px;
-    color: #e8eaed;
+    color: var(--text-primary);
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-
-  .settings-btn {
-    background: none;
-    border: none;
-    color: #9aa0a6;
-    cursor: pointer;
-    padding: 6px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.2s;
-    flex-shrink: 0;
-  }
-
-  .settings-btn:hover {
-    background: #2a2a3e;
   }
 
   /* Main Content */
@@ -209,6 +227,12 @@
     justify-content: space-between;
     padding: 12px 20px;
     gap: 12px;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.3s;
+  }
+
+  .main-header.has-chat {
+    border-bottom: 1px solid var(--border-color);
   }
 
   .header-left {
@@ -217,124 +241,238 @@
     gap: 12px;
   }
 
-  .header-right {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .toggle-sidebar-btn {
-    background: none;
-    border: none;
-    color: #9aa0a6;
-    cursor: pointer;
-    padding: 8px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.2s;
-  }
-
-  .toggle-sidebar-btn:hover {
-    background: #2a2a3e;
-  }
-
-  .edit-btn {
-    background: none;
-    border: none;
-    color: #9aa0a6;
-    cursor: pointer;
-    padding: 8px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.2s;
-  }
-
-  .edit-btn:hover {
-    background: #2a2a3e;
-  }
-
   .main-body {
     flex: 1;
     display: flex;
     flex-direction: column;
-    align-items: center;
+    align-items: center; /* Perfectly centers children horizontally */
     justify-content: center;
     position: relative;
+    overflow: hidden;
+  }
+
+  .main-body.chat-active {
+    justify-content: flex-start;
   }
 
   .glow-bg {
     position: absolute;
     width: 600px;
     height: 400px;
-    background: radial-gradient(ellipse, rgba(66, 133, 244, 0.15) 0%, transparent 70%);
+    background: radial-gradient(ellipse, var(--glow-color) 0%, transparent 70%);
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
     pointer-events: none;
+    transition: opacity 0.3s, top 0.3s;
+  }
+
+  .main-body.chat-active .glow-bg {
+    opacity: 0.5;
+    top: 30%;
   }
 
   .greeting {
     font-size: 44px;
     font-weight: 400;
-    color: #e8eaed;
+    color: var(--text-primary);
     text-align: center;
     margin-bottom: 40px;
     position: relative;
     z-index: 1;
     letter-spacing: -0.5px;
+    transition: opacity 0.3s, transform 0.3s;
   }
 
+  .main-body.chat-active .greeting {
+    display: none;
+  }
+
+  /* Chat History */
+  .chat-history {
+    width: 100%;
+    max-width: 780px;
+    margin: 0 auto; /* Explicit horizontal centering */
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: none;
+    flex-direction: column;
+    gap: 24px;
+    z-index: 1;
+    scroll-behavior: smooth;
+  }
+
+  .chat-history.active {
+    display: flex;
+  }
+
+  .chat-history::-webkit-scrollbar {
+    width: 6px;
+  }
+  .chat-history::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 3px;
+  }
+
+  .message {
+    display: flex;
+    gap: 16px;
+    max-width: 100%;
+    animation: fadeIn 0.3s ease;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .message.user {
+    flex-direction: row-reverse;
+  }
+
+  .message-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .message.user .message-avatar {
+    background: #e07a5f;
+    color: white;
+  }
+
+  .message.ai .message-avatar {
+    background: transparent;
+  }
+
+  .message-content {
+    background: var(--bg-tertiary);
+    padding: 14px 18px;
+    border-radius: 18px;
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--text-primary);
+    max-width: 80%;
+    word-wrap: break-word;
+  }
+
+  .message.user .message-content {
+    background: var(--message-user-bg);
+    border-bottom-right-radius: 4px;
+  }
+
+  .message.ai .message-content {
+    background: var(--message-ai-bg);
+    padding-left: 0;
+    border-bottom-left-radius: 4px;
+  }
+
+  .typing-indicator {
+    display: flex;
+    gap: 4px;
+    padding: 8px 0;
+  }
+
+  .typing-indicator span {
+    width: 8px;
+    height: 8px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    animation: bounce 1.4s infinite ease-in-out both;
+  }
+
+  .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+  .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+
+  @keyframes bounce {
+    0%, 80%, 100% { transform: scale(0); }
+    40% { transform: scale(1); }
+  }
+
+  /* Input Area */
   .input-container {
     width: 100%;
-    max-width: 680px;
+    max-width: 780px;
+    margin: 0 auto; /* Explicit horizontal centering */
     position: relative;
     z-index: 1;
+    padding: 0 20px 24px;
+  }
+
+  .file-preview {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+
+  .file-tag {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .file-tag button {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+  }
+
+  .file-tag button:hover {
+    color: var(--text-primary);
   }
 
   .input-box {
     display: flex;
     align-items: center;
-    background: #2a2a3e;
+    background: var(--input-bg);
     border-radius: 28px;
-    padding: 14px 20px;
-    gap: 12px;
-    border: 1px solid #3a3a4e;
-    transition: border-color 0.2s;
+    padding: 10px 16px;
+    gap: 8px;
+    border: 1px solid var(--border-color);
+    transition: border-color 0.2s, box-shadow 0.2s, background-color 0.3s;
   }
 
   .input-box:focus-within {
-    border-color: #5a5a6e;
-  }
-
-  .plus-btn {
-    background: none;
-    border: none;
-    color: #9aa0a6;
-    cursor: pointer;
-    font-size: 22px;
-    padding: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
+    border-color: var(--text-muted);
+    box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.15);
   }
 
   .input-field {
     flex: 1;
     background: none;
     border: none;
-    color: #e8eaed;
+    color: var(--text-primary);
     font-size: 15px;
     outline: none;
     font-family: inherit;
+    padding: 8px 0;
+    max-height: 200px;
+    resize: none;
   }
 
   .input-field::placeholder {
-    color: #7a7f85;
+    color: var(--text-muted);
+  }
+
+  .model-selector-container {
+    position: relative;
   }
 
   .model-selector {
@@ -343,44 +481,162 @@
     gap: 6px;
     background: none;
     border: none;
-    color: #c4c7c5;
+    color: var(--text-secondary);
     font-size: 14px;
     cursor: pointer;
     padding: 6px 10px;
     border-radius: 16px;
-    transition: background 0.2s;
+    transition: background 0.2s, color 0.2s;
     white-space: nowrap;
   }
 
   .model-selector:hover {
-    background: #3a3a4e;
+    background: var(--bg-hover);
+    color: var(--text-primary);
   }
 
-  .model-selector svg {
-    width: 16px;
-    height: 16px;
-  }
-
-  .mic-btn {
-    background: none;
-    border: none;
-    color: #9aa0a6;
-    cursor: pointer;
+  .model-dropdown {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    margin-bottom: 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
     padding: 6px;
-    display: flex;
+    min-width: 160px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    display: none;
+    z-index: 10;
+  }
+
+  .model-dropdown.active {
+    display: block;
+  }
+
+  .model-option {
+    padding: 8px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text-secondary);
+    transition: background 0.2s, color 0.2s;
+  }
+
+  .model-option:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .model-option.selected {
+    color: #4285F4;
+    font-weight: 500;
+  }
+
+  .mic-btn.listening {
+    color: #ea4335;
+    background: rgba(234, 67, 53, 0.1);
+    animation: pulse 1.5s infinite;
+  }
+
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0.4); }
+    70% { box-shadow: 0 0 0 10px rgba(234, 67, 53, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0); }
+  }
+
+  /* Modal */
+  .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+    display: none;
     align-items: center;
     justify-content: center;
-    border-radius: 50%;
+    z-index: 100;
+  }
+
+  .modal-overlay.active {
+    display: flex;
+  }
+
+  .modal {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    padding: 24px;
+    width: 90%;
+    max-width: 400px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    transition: background-color 0.3s, border-color 0.3s;
+  }
+
+  .modal h2 {
+    font-size: 18px;
+    margin-bottom: 16px;
+    color: var(--text-primary);
+  }
+
+  .modal-body {
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.6;
+    margin-bottom: 20px;
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+  }
+
+  .btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
     transition: background 0.2s;
   }
 
-  .mic-btn:hover {
-    background: #3a3a4e;
+  .btn-secondary {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
   }
 
-  .mic-btn svg {
-    width: 20px;
-    height: 20px;
+  .btn-secondary:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .btn-primary {
+    background: #4285F4;
+    color: white;
+  }
+
+  .btn-primary:hover {
+    background: #3367d6;
+  }
+
+  .theme-toggle-btn {
+    padding: 6px 14px;
+    border-radius: 16px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background 0.2s, border-color 0.2s;
+  }
+
+  .theme-toggle-btn:hover {
+    background: var(--bg-hover);
   }
 
   /* Responsive */
@@ -389,6 +645,7 @@
       position: absolute;
       z-index: 10;
       height: 100%;
+      box-shadow: 2px 0 8px rgba(0,0,0,0.3);
     }
     .sidebar.collapsed {
       display: none;
@@ -396,6 +653,9 @@
     .greeting {
       font-size: 28px;
       padding: 0 20px;
+    }
+    .message-content {
+      max-width: 90%;
     }
   }
 </style>
@@ -420,7 +680,7 @@
           </defs>
         </svg>
       </div>
-      <span class="logo-text" id="logoText"></span>
+      <span class="logo-text" id="logoText">AngChat</span>
     </div>
     <button class="sidebar-toggle" id="collapseBtn" title="Collapse sidebar">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -430,7 +690,7 @@
     </button>
   </div>
 
-  <a class="nav-item active" href="#">
+  <a class="nav-item active" href="#" id="newChatBtn">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M12 20h9"/>
       <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
@@ -438,7 +698,7 @@
     New chat
   </a>
 
-  <a class="nav-item" href="#">
+  <a class="nav-item" href="#" onclick="alert('Search functionality will connect to Python backend')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <circle cx="11" cy="11" r="8"/>
       <line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -446,7 +706,7 @@
     Search chats
   </a>
 
-  <a class="nav-item" href="#">
+  <a class="nav-item" href="#" onclick="alert('Image generation/viewing will connect to Python backend')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
       <circle cx="8.5" cy="8.5" r="1.5"/>
@@ -455,7 +715,7 @@
     Images
   </a>
 
-  <a class="nav-item" href="#">
+  <a class="nav-item" href="#" onclick="alert('Video functionality will connect to Python backend')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <polygon points="23 7 16 12 23 17 23 7"/>
       <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
@@ -464,7 +724,7 @@
   </a>
 
   <div class="section-label">Folders</div>
-  <a class="nav-item" href="#">
+  <a class="nav-item" href="#" onclick="alert('Notebook feature will connect to Python backend')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <line x1="12" y1="5" x2="12" y2="19"/>
       <line x1="5" y1="12" x2="19" y2="12"/>
@@ -475,7 +735,7 @@
   <div class="sidebar-footer">
     <div class="user-avatar">A</div>
     <span class="user-name">User</span>
-    <button class="settings-btn" title="Settings">
+    <button class="settings-btn" id="settingsBtn" title="Settings">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="3"/>
         <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
@@ -486,7 +746,7 @@
 
 <!-- Main Content -->
 <main class="main-content">
-  <div class="main-header">
+  <div class="main-header" id="mainHeader">
     <div class="header-left">
       <button class="toggle-sidebar-btn" id="toggleSidebarBtn" title="Toggle sidebar">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -494,75 +754,366 @@
           <line x1="9" y1="3" x2="9" y2="21"/>
         </svg>
       </button>
+      <span id="chatTitle" style="font-size: 14px; color: var(--text-muted); display: none;">New Chat</span>
     </div>
-    <div class="header-right">
-      <button class="edit-btn" title="Edit">
+    <!-- Bin button removed from here as requested -->
+  </div>
+
+  <div class="main-body" id="mainBody">
+    <div class="glow-bg"></div>
+    <h1 class="greeting">Hi, user. What's on your mind?</h1>
+
+    <div class="chat-history" id="chatHistory">
+      <!-- Messages will be injected here -->
+    </div>
+  </div>
+
+  <div class="input-container">
+    <div class="file-preview" id="filePreview"></div>
+    <div class="input-box">
+      <button class="plus-btn" id="plusBtn" title="Attach file">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 20h9"/>
-          <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
+          <line x1="12" y1="5" x2="12" y2="19"/>
+          <line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+      </button>
+      <input type="file" id="fileInput" hidden multiple>
+      
+      <textarea class="input-field" placeholder="Ask AngChat" id="chatInput" rows="1"></textarea>
+      
+      <div class="model-selector-container">
+        <button class="model-selector" id="modelBtn">
+          <span id="currentModel">Flash-Lite</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+        <div class="model-dropdown" id="modelDropdown">
+          <div class="model-option selected" data-model="Flash-Lite">Flash-Lite</div>
+          <div class="model-option" data-model="Flash">Flash</div>
+          <div class="model-option" data-model="Pro">Pro</div>
+          <div class="model-option" data-model="Ultra">Ultra</div>
+          <div class="model-option" data-model="MAX">MAX</div>
+        </div>
+      </div>
+
+      <button class="mic-btn" id="micBtn" title="Voice input">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
+          <path d="M19 10v2a7 7 0 01-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="23"/>
+          <line x1="8" y1="23" x2="16" y2="23"/>
         </svg>
       </button>
     </div>
   </div>
-
-  <div class="main-body">
-    <div class="glow-bg"></div>
-    <h1 class="greeting">Hi, user. What's on your mind?</h1>
-
-    <div class="input-container">
-      <div class="input-box">
-        <button class="plus-btn" title="Add">+</button>
-        <input type="text" class="input-field" placeholder="Ask Gemini" id="chatInput">
-        <button class="model-selector" id="modelBtn">
-          Flash-Lite
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="6 9 12 15 18 9"/>
-          </svg>
-        </button>
-        <button class="mic-btn" title="Voice input">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
-            <path d="M19 10v2a7 7 0 01-14 0v-2"/>
-            <line x1="12" y1="19" x2="12" y2="23"/>
-            <line x1="8" y1="23" x2="16" y2="23"/>
-          </svg>
-        </button>
-      </div>
-    </div>
-  </div>
 </main>
 
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+      <h2 style="margin: 0;">Settings</h2>
+      <button 
+        id="closeSettingsXBtn" 
+        style="background: transparent; border: none; font-size: 28px; cursor: pointer; color: var(--text-primary, #333); opacity: 0.7; line-height: 1; padding: 0;"
+        aria-label="Close settings"
+      >&times;</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin-bottom: 16px;">Backend connection status: <span style="color: #ea4335; font-weight: 500;">Disconnected</span></p>
+      
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; padding: 12px; background: var(--bg-tertiary); border-radius: 8px;">
+        <span style="color: var(--text-primary); font-weight: 500;">Appearance</span>
+        <button class="theme-toggle-btn" id="themeToggleBtn">Switch to Light</button>
+      </div>
+      
+      <p>Message history: Stored locally in browser until Python backend is connected.</p>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="closeSettingsBtn">Apply</button>
+    </div>
+  </div>
+</div>
+
 <script>
+  // DOM Elements
   const sidebar = document.getElementById('sidebar');
   const collapseBtn = document.getElementById('collapseBtn');
   const toggleSidebarBtn = document.getElementById('toggleSidebarBtn');
   const chatInput = document.getElementById('chatInput');
+  const chatHistory = document.getElementById('chatHistory');
+  const mainBody = document.getElementById('mainBody');
+  const mainHeader = document.getElementById('mainHeader');
+  const chatTitle = document.getElementById('chatTitle');
   const modelBtn = document.getElementById('modelBtn');
+  const modelDropdown = document.getElementById('modelDropdown');
+  const currentModelSpan = document.getElementById('currentModel');
+  const modelOptions = document.querySelectorAll('.model-option');
+  const plusBtn = document.getElementById('plusBtn');
+  const fileInput = document.getElementById('fileInput');
+  const filePreview = document.getElementById('filePreview');
+  const micBtn = document.getElementById('micBtn');
+  const settingsBtn = document.getElementById('settingsBtn');
+  const settingsModal = document.getElementById('settingsModal');
+  const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+  const newChatBtn = document.getElementById('newChatBtn');
+  const themeToggleBtn = document.getElementById('themeToggleBtn');
+  const body = document.body;
 
+  let isListening = false;
+  let attachedFiles = [];
+
+  // --- Theme Management ---
+  function initTheme() {
+    const savedTheme = localStorage.getItem('angchat-theme') || 'dark';
+    body.setAttribute('data-theme', savedTheme);
+    updateThemeButtonText(savedTheme);
+  }
+
+  function updateThemeButtonText(theme) {
+    themeToggleBtn.textContent = theme === 'dark' ? 'Switch to Light' : 'Switch to Dark';
+  }
+
+  themeToggleBtn.addEventListener('click', () => {
+    const currentTheme = body.getAttribute('data-theme');
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    body.setAttribute('data-theme', newTheme);
+    localStorage.setItem('angchat-theme', newTheme);
+    updateThemeButtonText(newTheme);
+  });
+
+  // Auto-resize textarea
+  chatInput.addEventListener('input', function() {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 200) + 'px';
+  });
+
+  // Sidebar Toggle
   function toggleSidebar() {
     sidebar.classList.toggle('collapsed');
   }
-
   collapseBtn.addEventListener('click', toggleSidebar);
   toggleSidebarBtn.addEventListener('click', toggleSidebar);
 
-  chatInput.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter' && this.value.trim()) {
-      alert('You asked: ' + this.value.trim());
-      this.value = '';
+  // Model Selector Dropdown
+  modelBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    modelDropdown.classList.toggle('active');
+  });
+
+  modelOptions.forEach(option => {
+    option.addEventListener('click', () => {
+      modelOptions.forEach(opt => opt.classList.remove('selected'));
+      option.classList.add('selected');
+      currentModelSpan.textContent = option.dataset.model;
+      modelDropdown.classList.remove('active');
+    });
+  });
+
+  document.addEventListener('click', () => {
+    modelDropdown.classList.remove('active');
+  });
+
+  // File Upload Simulation
+  plusBtn.addEventListener('click', () => fileInput.click());
+  
+  fileInput.addEventListener('change', (e) => {
+    const files = Array.from(e.target.files);
+    files.forEach(file => {
+      attachedFiles.push(file.name);
+      renderFilePreview();
+    });
+    fileInput.value = ''; // Reset to allow same file selection again
+  });
+
+  function renderFilePreview() {
+    filePreview.innerHTML = '';
+    attachedFiles.forEach((fileName, index) => {
+      const tag = document.createElement('div');
+      tag.className = 'file-tag';
+      tag.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/>
+          <polyline points="13 2 13 9 20 9"/>
+        </svg>
+        ${fileName}
+        <button onclick="removeFile(${index})">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      `;
+      filePreview.appendChild(tag);
+    });
+  }
+
+  window.removeFile = function(index) {
+    attachedFiles.splice(index, 1);
+    renderFilePreview();
+  };
+
+  // Voice Input Simulation
+  micBtn.addEventListener('click', () => {
+    if (!isListening) {
+      isListening = true;
+      micBtn.classList.add('listening');
+      chatInput.placeholder = "Listening...";
+      
+      setTimeout(() => {
+        if (isListening) {
+          chatInput.value += "Simulated voice input text. ";
+          stopListening();
+          // Trigger auto-resize
+          chatInput.style.height = 'auto';
+          chatInput.style.height = Math.min(chatInput.scrollHeight, 200) + 'px';
+        }
+      }, 2000);
+    } else {
+      stopListening();
     }
   });
 
-  modelBtn.addEventListener('click', function() {
-    const models = ['Flash-Lite', 'Flash', 'Pro', 'Ultra'];
-    const textNode = this.childNodes[0];
-    const current = textNode.textContent.trim();
-    const idx = models.indexOf(current);
-    const next = models[(idx + 1) % models.length];
-    textNode.textContent = next + ' ';
+  function stopListening() {
+    isListening = false;
+    micBtn.classList.remove('listening');
+    chatInput.placeholder = "Ask AngChat";
+    chatInput.focus();
+  }
+
+  // Settings Modal
+  settingsBtn.addEventListener('click', () => settingsModal.classList.add('active'));
+  closeSettingsBtn.addEventListener('click', () => settingsModal.classList.remove('active'));
+  settingsModal.addEventListener('click', (e) => {
+    if (e.target === settingsModal) settingsModal.classList.remove('active');
   });
+
+  // Chat Functionality
+  function activateChatView() {
+    mainBody.classList.add('chat-active');
+    mainHeader.classList.add('has-chat');
+    chatHistory.classList.add('active');
+    chatTitle.style.display = 'block';
+  }
+
+  function addMessage(role, text) {
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `message ${role}`;
+    
+    const avatar = document.createElement('div');
+    avatar.className = 'message-avatar';
+    avatar.textContent = role === 'user' ? 'U' : 'AI';
+    
+    const content = document.createElement('div');
+    content.className = 'message-content';
+    content.textContent = text;
+    
+    msgDiv.appendChild(avatar);
+    msgDiv.appendChild(content);
+    chatHistory.appendChild(msgDiv);
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+  }
+
+  function showTypingIndicator() {
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'message ai';
+    msgDiv.id = 'typingIndicator';
+    
+    const avatar = document.createElement('div');
+    avatar.className = 'message-avatar';
+    avatar.textContent = 'AI';
+    
+    const content = document.createElement('div');
+    content.className = 'message-content';
+    content.innerHTML = `
+      <div class="typing-indicator">
+        <span></span><span></span><span></span>
+      </div>
+    `;
+    
+    msgDiv.appendChild(avatar);
+    msgDiv.appendChild(content);
+    chatHistory.appendChild(msgDiv);
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+  }
+
+  function removeTypingIndicator() {
+    const indicator = document.getElementById('typingIndicator');
+    if (indicator) indicator.remove();
+  }
+
+  async function sendMessage() {
+    const text = chatInput.value.trim();
+    if (!text && attachedFiles.length === 0) return;
+
+    activateChatView();
+    
+    let displayText = text;
+    if (attachedFiles.length > 0) {
+      displayText = `[Attached: ${attachedFiles.join(', ')}]\n\n${text}`;
+    }
+
+    addMessage('user', displayText);
+    
+    chatInput.value = '';
+    chatInput.style.height = 'auto';
+    attachedFiles = [];
+    renderFilePreview();
+
+    showTypingIndicator();
+    
+    // TODO: Replace this simulation with actual fetch() to your Python backend
+    setTimeout(() => {
+      removeTypingIndicator();
+      const model = currentModelSpan.textContent;
+      const responses = [
+        `This is a simulated response from ${model}. Connect the Python backend to get real AI responses!`,
+        `I understand you're asking about: "${text}". Once the Python backend is connected, I'll provide a real answer.`,
+        `Processing with ${model}... Backend integration pending. This is a frontend placeholder.`
+      ];
+      const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+      addMessage('ai', randomResponse);
+    }, 1500);
+  }
+
+  chatInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  // New Chat
+  function resetChat() {
+    chatHistory.innerHTML = '';
+    chatHistory.classList.remove('active');
+    mainBody.classList.remove('chat-active');
+    mainHeader.classList.remove('has-chat');
+    chatTitle.style.display = 'none';
+    chatInput.value = '';
+    chatInput.style.height = 'auto';
+    attachedFiles = [];
+    renderFilePreview();
+    
+    document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+    newChatBtn.classList.add('active');
+  }
+
+  newChatBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    resetChat();
+  });
+
+document.getElementById('closeSettingsXBtn').addEventListener('click', function() {
+    document.getElementById('settingsModal').style.display = 'none';
+    // Or however you normally handle closing the modal
+});
+
+  // Initialize
+  document.getElementById('logoText').textContent = 'AngChat';
+  initTheme(); // Apply saved theme on load
 </script>
 
 </body>
-
 </html>
