@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, Response
-from fastapi.templates import Jinja2Templates
+from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 
 app=FastAPI()
