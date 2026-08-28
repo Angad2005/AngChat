@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sleek Login & Sign Up</title>
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts (Inter) -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --glass-bg: rgba(255, 255, 255, 0.95);
+            --input-bg: #f3f4f6;
+            --text-dark: #1f2937;
+            --text-light: #6b7280;
+            --transition-speed: 0.5s;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--primary-gradient);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow-x: hidden;
+            margin: 0;
+            padding: 20px;
+            position: relative;
+        }
+
+        /* Background Animated Shapes */
+        .bg-shape {
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(80px);
+            z-index: 0;
+            opacity: 0.6;
+            animation: float 10s infinite ease-in-out;
+        }
+        .shape-1 {
+            width: 350px;
+            height: 350px;
+            background: #ff9a9e;
+            top: -50px;
+            left: -50px;
+        }
+        .shape-2 {
+            width: 450px;
+            height: 450px;
+            background: #a18cd1;
+            bottom: -100px;
+            right: -100px;
+            animation-delay: 2s;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0); }
+            50% { transform: translate(30px, 40px); }
+        }
+
+        /* Container Wrap */
+        .card-container-wrapper {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 1000px;
+            display: flex;
+            justify-content: center;
+        }
+
+        /* Main Card Container */
+        .main-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border-radius: 24px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            overflow: hidden;
+            width: 100%;
+            min-height: 650px;
+            position: relative;
+            display: flex;
+        }
+
+        /* Left Side (Image & Welcome Text) */
+        .welcome-section {
+            flex: 1;
+            background: url('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop') no-repeat center center/cover;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            padding: 3rem;
+            color: white;
+            transition: all var(--transition-speed) ease-in-out;
+        }
+        
+        .welcome-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to top, rgba(15, 15, 26, 0.85), rgba(118, 75, 162, 0.3));
+            z-index: 1;
+        }
+
+        .welcome-content {
+            position: relative;
+            z-index: 2;
+            transform: translateY(0);
+            transition: opacity 0.4s ease, transform 0.4s ease;
+        }
+
+        .welcome-content.fade-out {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+
+        .welcome-content h2 {
+            font-weight: 700;
+            font-size: 2.3rem;
+            margin-bottom: 1rem;
+            line-height: 1.2;
+        }
+
+        .welcome-content p {
+            font-size: 1.05rem;
+            opacity: 0.9;
+            line-height: 1.6;
+            margin-bottom: 0;
+        }
+
+        /* Right Side (Form Section) */
+        .form-section {
+            flex: 1;
+            padding: 3rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            position: relative;
+            background: #ffffff;
+            overflow: hidden;
+        }
+
+        /* Form Wrappers */
+        .form-wrapper {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all var(--transition-speed) cubic-bezier(0.4, 0, 0.2, 1);
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            padding: 2.5rem;
+            overflow-y: auto;
+            box-sizing: border-box;
+        }
+
+        /* Default Sliding Layout */
+        #login-form {
+            transform: translateX(0);
+        }
+
+        #signup-form {
+            transform: translateX(100%);
+            padding: 3rem 2.5rem;
+        }
+
+        /* Active State */
+        .form-wrapper.active {
+            opacity: 1;
+            visibility: visible;
+            pointer-events: all;
+            transform: translateX(0) !important;
+        }
+
+        .slide-left #login-form {
+            transform: translateX(-100%);
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        /* Form Content Styling */
+        .form-content {
+            width: 100%;
+            max-width: 380px;
+            margin: auto;
+        }
+
+        #signup-form .form-content {
+            padding: 0.5rem 0;
+        }
+
+        h3 {
+            font-weight: 700;
+            color: var(--text-dark);
+            margin-bottom: 0.4rem;
+            font-size: 1.75rem;
+        }
+
+        .subtitle {
+            color: var(--text-light);
+            margin-bottom: 1.75rem;
+            font-size: 0.925rem;
+        }
+
+        /* Custom Inputs */
+        .custom-input-group {
+            position: relative;
+            margin-bottom: 1.15rem;
+        }
+
+        .custom-input {
+            width: 100%;
+            padding: 0.85rem 2.8rem 0.85rem 2.75rem;
+            border: 2px solid transparent;
+            background-color: var(--input-bg);
+            border-radius: 12px;
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+            outline: none;
+            color: var(--text-dark);
+        }
+
+        .custom-input:focus {
+            background-color: #ffffff;
+            border-color: #764ba2;
+            box-shadow: 0 0 0 4px rgba(118, 75, 162, 0.12);
+        }
+
+        .input-icon {
+            position: absolute;
+            left: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-light);
+            transition: color 0.3s ease;
+            z-index: 2;
+        }
+
+        .toggle-password {
+            position: absolute;
+            right: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-light);
+            cursor: pointer;
+            z-index: 2;
+            padding: 4px;
+            transition: color 0.2s;
+        }
+
+        .toggle-password:hover {
+            color: var(--text-dark);
+        }
+
+        .custom-input:focus + .input-icon {
+            color: #764ba2;
+        }
+
+        /* Buttons */
+        .btn-primary-custom {
+            width: 100%;
+            padding: 0.875rem;
+            border-radius: 12px;
+            background: var(--primary-gradient);
+            border: none;
+            color: white;
+            font-weight: 600;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-top: 0.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-primary-custom:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px -8px rgba(118, 75, 162, 0.5);
+        }
+
+        .btn-primary-custom:active {
+            transform: translateY(0);
+        }
+
+        /* Social Login Buttons */
+        .social-login {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 1.25rem;
+            justify-content: center;
+        }
+
+        .social-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            border: 1px solid #e5e7eb;
+            background: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-dark);
+            transition: all 0.3s ease;
+            cursor: pointer;
+            font-size: 1.05rem;
+        }
+
+        .social-btn:hover {
+            background: #f9fafb;
+            transform: translateY(-2px);
+            border-color: #d1d5db;
+            color: #764ba2;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        }
+
+        /* Toggle Link */
+        .toggle-text {
+            text-align: center;
+            margin-top: 1.5rem;
+            color: var(--text-light);
+            font-size: 0.9rem;
+        }
+
+        .toggle-link {
+            color: #764ba2;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            margin-left: 4px;
+            transition: color 0.2s;
+        }
+
+        .toggle-link:hover {
+            color: #5a387e;
+            text-decoration: underline;
+        }
+
+        /* Custom Toast Notification */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+        }
+
+        .custom-toast {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 1rem 1.25rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-left: 4px solid #764ba2;
+            transform: translateX(120%);
+            transition: transform 0.4s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+        }
+
+        .custom-toast.show {
+            transform: translateX(0);
+        }
+
+        .toast-icon {
+            font-size: 1.2rem;
+            color: #764ba2;
+        }
+
+        .toast-message {
+            font-size: 0.9rem;
+            color: var(--text-dark);
+            font-weight: 500;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 991px) {
+            .main-card {
+                flex-direction: column;
+                max-width: 480px;
+                min-height: auto;
+            }
+            
+            .welcome-section {
+                display: none;
+            }
+
+            .form-section {
+                padding: 2.5rem 1.5rem;
+                min-height: 560px;
+            }
+
+            .form-wrapper {
+                padding: 1.5rem;
+            }
+
+            #signup-form {
+                padding: 2rem 1.5rem;
+            }
+        }
+
+        @media (max-width: 576px) {
+            body {
+                padding: 12px;
+            }
+
+            .main-card {
+                border-radius: 20px;
+            }
+
+            .form-section {
+                min-height: 530px;
+                padding: 1.5rem 1rem;
+            }
+
+            .form-wrapper {
+                position: relative;
+                padding: 0;
+                height: auto;
+                min-height: auto;
+                opacity: 1;
+                visibility: visible;
+                pointer-events: all;
+                display: none;
+                transform: none !important;
+            }
+
+            .form-wrapper.active {
+                display: flex;
+            }
+
+            #signup-form {
+                transform: none;
+                padding: 1rem 0.5rem;
+            }
+
+            h3 {
+                font-size: 1.5rem;
+            }
+
+            .custom-input {
+                padding: 0.75rem 2.5rem 0.75rem 2.5rem;
+                font-size: 0.9rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Toast Notification Container -->
+    <div class="toast-container">
+        <div class="custom-toast" id="toast">
+            <i class="fas fa-check-circle toast-icon" id="toast-icon"></i>
+            <span class="toast-message" id="toast-msg">Form submitted successfully!</span>
+        </div>
+    </div>
+
+    <!-- Background Shapes -->
+    <div class="bg-shape shape-1"></div>
+    <div class="bg-shape shape-2"></div>
+
+    <div class="card-container-wrapper">
+        <div class="main-card">
+            
+            <!-- Left Side: Welcome Message (Desktop Only) -->
+            <div class="welcome-section">
+                <div class="welcome-overlay"></div>
+                <div class="welcome-content" id="welcome-content">
+                    <h2 id="welcome-title">Welcome Back!</h2>
+                    <p id="welcome-desc">Enter your details and start your journey with us today.</p>
+                </div>
+            </div>
+
+            <!-- Right Side: Forms Container -->
+            <div class="form-section" id="form-container">
+                
+                <!-- Sign In / Login Form -->
+                <div class="form-wrapper active" id="login-form">
+                    <div class="form-content">
+                        <h3>Sign In</h3>
+                        <p class="subtitle">Welcome back! Please enter your details.</p>
+                        
+                        <form id="login-form-element" onsubmit="handleFormSubmit(event, 'Login Successful!')">
+                            <div class="custom-input-group">
+                                <input type="email" class="custom-input" placeholder="Email Address" required>
+                                <i class="fas fa-envelope input-icon"></i>
+                            </div>
+                            
+                            <div class="custom-input-group">
+                                <input type="password" class="custom-input password-field" placeholder="Password" required>
+                                <i class="fas fa-lock input-icon"></i>
+                                <i class="fas fa-eye toggle-password" onclick="togglePasswordVisibility(this)"></i>
+                            </div>
+
+                            <div class="d-flex justify-content-between align-items-center mb-4">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="remember">
+                                    <label class="form-check-label text-secondary small" for="remember">Remember me</label>
+                                </div>
+                                <a href="#" class="text-secondary small text-decoration-none hover-purple" onclick="showToast('Password reset link sent to your email.'); return false;">Forgot Password?</a>
+                            </div>
+
+                            <button type="submit" class="btn-primary-custom">Sign In</button>
+                        </form>
+
+                        <div class="text-center mt-3">
+                            <p class="text-secondary small mb-2">Or continue with</p>
+                            <div class="social-login">
+                                <button type="button" class="social-btn" aria-label="Google" onclick="showToast('Google Sign In initialized')"><i class="fab fa-google"></i></button>
+                                <button type="button" class="social-btn" aria-label="Facebook" onclick="showToast('Facebook Sign In initialized')"><i class="fab fa-facebook-f"></i></button>
+                                <button type="button" class="social-btn" aria-label="Apple" onclick="showToast('Apple Sign In initialized')"><i class="fab fa-apple"></i></button>
+                            </div>
+                        </div>
+
+                        <p class="toggle-text">
+                            Don't have an account? 
+                            <span class="toggle-link" onclick="toggleForm('signup')">Sign Up</span>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Create Account / Sign Up Form -->
+                <div class="form-wrapper" id="signup-form">
+                    <div class="form-content">
+                        <h3>Create Account</h3>
+                        <p class="subtitle">Join our community today!</p>
+                        
+                        <form id="signup-form-element" onsubmit="handleFormSubmit(event, 'Account Created Successfully!')">
+                            <div class="custom-input-group">
+                                <input type="text" class="custom-input" placeholder="Full Name" required>
+                                <i class="fas fa-user input-icon"></i>
+                            </div>
+
+                            <div class="custom-input-group">
+                                <input type="email" class="custom-input" placeholder="Email Address" required>
+                                <i class="fas fa-envelope input-icon"></i>
+                            </div>
+                            
+                            <div class="custom-input-group">
+                                <input type="password" class="custom-input password-field" placeholder="Create Password" required minlength="6">
+                                <i class="fas fa-lock input-icon"></i>
+                                <i class="fas fa-eye toggle-password" onclick="togglePasswordVisibility(this)"></i>
+                            </div>
+
+                            <div class="custom-input-group">
+                                <input type="password" class="custom-input password-field" placeholder="Confirm Password" required minlength="6">
+                                <i class="fas fa-shield-alt input-icon"></i>
+                                <i class="fas fa-eye toggle-password" onclick="togglePasswordVisibility(this)"></i>
+                            </div>
+
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="terms" required>
+                                <label class="form-check-label text-secondary small" for="terms">
+                                    I agree to the <a href="#" class="text-decoration-none" style="color: #764ba2;" onclick="showToast('Terms & Conditions modal triggered'); return false;">Terms & Conditions</a>
+                                </label>
+                            </div>
+
+                            <button type="submit" class="btn-primary-custom">Create Account</button>
+                        </form>
+
+                        <div class="text-center mt-3">
+                            <p class="text-secondary small mb-2">Or sign up with</p>
+                            <div class="social-login">
+                                <button type="button" class="social-btn" aria-label="Google" onclick="showToast('Google Registration initialized')"><i class="fab fa-google"></i></button>
+                                <button type="button" class="social-btn" aria-label="Facebook" onclick="showToast('Facebook Registration initialized')"><i class="fab fa-facebook-f"></i></button>
+                                <button type="button" class="social-btn" aria-label="Twitter" onclick="showToast('Twitter Registration initialized')"><i class="fab fa-twitter"></i></button>
+                            </div>
+                        </div>
+
+                        <p class="toggle-text">
+                            Already have an account? 
+                            <span class="toggle-link" onclick="toggleForm('login')">Sign In</span>
+                        </p>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // Toggle Form between Login & Signup
+        function toggleForm(type) {
+            const container = document.getElementById('form-container');
+            const loginForm = document.getElementById('login-form');
+            const signupForm = document.getElementById('signup-form');
+            const welcomeContent = document.getElementById('welcome-content');
+            const welcomeTitle = document.getElementById('welcome-title');
+            const welcomeDesc = document.getElementById('welcome-desc');
+
+            welcomeContent.classList.add('fade-out');
+
+            if (type === 'signup') {
+                container.classList.add('slide-left');
+                loginForm.classList.remove('active');
+                signupForm.classList.add('active');
+                
+                setTimeout(() => {
+                    welcomeTitle.textContent = "Join Us Today!";
+                    welcomeDesc.textContent = "Register now to access exclusive features, member benefits, and start your journey.";
+                    welcomeContent.classList.remove('fade-out');
+                }, 250);
+            } else {
+                container.classList.remove('slide-left');
+                signupForm.classList.remove('active');
+                loginForm.classList.add('active');
+                
+                setTimeout(() => {
+                    welcomeTitle.textContent = "Welcome Back!";
+                    welcomeDesc.textContent = "Enter your personal details and start your journey with us today.";
+                    welcomeContent.classList.remove('fade-out');
+                }, 250);
+            }
+        }
+
+        // Show/Hide Password Toggle
+        function togglePasswordVisibility(icon) {
+            const input = icon.parentElement.querySelector('.password-field');
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+            } else {
+                input.type = 'password';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            }
+        }
+
+        // Custom Toast Notification System
+        let toastTimeout;
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            const msgEl = document.getElementById('toast-msg');
+            msgEl.textContent = message;
+
+            toast.classList.add('show');
+            clearTimeout(toastTimeout);
+
+            toastTimeout = setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3500);
+        }
+
+        // Form Submit Handler
+        function handleFormSubmit(event, successMessage) {
+            event.preventDefault();
+            showToast(successMessage);
+        }
+    </script>
+</body>
+</html>
