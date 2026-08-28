@@ -51,7 +51,7 @@ function initializeDatabase() {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
                 password TEXT NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                email TEXT UNIQUE NOT NULL,
             );
                         
         `);
@@ -71,6 +71,37 @@ async function testConnection() {
     }
 }
 testConnection();
+
+//fetching data from database
+app.get('/api/profile', isAuthenticated, async (req, res) => {
+    try {
+        const user = await query('SELECT id, username, email FROM users WHERE id = ?', [req.session.userId]);
+        if (!user || user.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        res.json(user);
+    } catch (err) {
+        console.error('❌ Error fetching profile:', err.message);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+//putting data into database
+app.post('/api/register', async (req, res) => {
+    const { username, password, email } = req.body;
+
+    try {
+        const result = await query(
+            'INSERT INTO users (username, password, email) VALUES (?, ?, ?)',
+            [username, password, email]
+        );
+        res.status(201).json({ id: result.insertId, username, email });
+    } catch (err) {
+        console.error('❌ Error registering user:', err.message);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 
 
 app.listen(3000,()=>{

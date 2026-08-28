@@ -2,7 +2,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 
 // Create/connect to SQLite database file
-const dbPath = path.join(__dirname, 'angchat.db');
+const dbPath = path.join(__dirname, 'chat.db');
 const db = new Database(dbPath);
 
 // Enable WAL mode for better performance
