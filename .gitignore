@@ -3,3 +3,4 @@ __pycache__/
 backend/node_modules/
 .env/
 /backend/.env
+/backend/*.db*
