@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
-    "test": "node --check index.js"
+    "test": "node --check index.js providers.js models.js tools.js inference.js harness.js memory.js skills.js context.js && node test.js"
   },
   "keywords": ["ai", "harness", "claude-code", "gemini"],
   "author": "",
@@ -17,5 +17,8 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-session": "^1.19.0"
+  },
+  "optionalDependencies": {
+    "node-llama-cpp": "^3.14.4"
   }
 }

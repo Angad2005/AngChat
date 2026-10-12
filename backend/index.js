@@ -8,6 +8,11 @@ const { db } = require('./db');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 const { DEFAULTS, normalizeSettings, publicSettings, callProvider } = require('./providers');
 const models = require('./models');
+const inference = require('./inference');
+const memory = require('./memory');
+const skills = require('./skills');
+const { runHarness } = require('./harness');
+const { toolsForMode } = require('./tools');
 
 const scrypt = promisify(scryptCallback);
 const app = express();
@@ -74,10 +79,11 @@ function currentUser(req) {
 }
 
 function persistRuntimeSettings() {
-  db.prepare(`INSERT INTO harness_settings (id,provider,model,base_url,temperature,max_tokens,active_model_id) VALUES (1,?,?,?,?,?,?)
+  db.prepare(`INSERT INTO harness_settings (id,provider,model,base_url,temperature,max_tokens,active_model_id,tools_enabled,inference_engine) VALUES (1,?,?,?,?,?,?,?,?)
     ON CONFLICT(id) DO UPDATE SET provider=excluded.provider,model=excluded.model,base_url=excluded.base_url,
-    temperature=excluded.temperature,max_tokens=excluded.max_tokens,active_model_id=excluded.active_model_id`)
-    .run(runtimeSettings.provider, runtimeSettings.model, runtimeSettings.baseUrl, runtimeSettings.temperature, runtimeSettings.maxTokens, models.runtimeStatus().modelId);
+    temperature=excluded.temperature,max_tokens=excluded.max_tokens,active_model_id=excluded.active_model_id,
+    tools_enabled=excluded.tools_enabled,inference_engine=excluded.inference_engine`)
+    .run(runtimeSettings.provider, runtimeSettings.model, runtimeSettings.baseUrl, runtimeSettings.temperature, runtimeSettings.maxTokens, models.runtimeStatus().modelId, runtimeSettings.toolsEnabled !== false ? 1 : 0, runtimeSettings.inferenceEngine || 'auto');
 }
 
 app.get('/', (_req, res) => res.sendFile(path.join(publicDir, 'First.html')));
@@ -89,7 +95,13 @@ app.get('/api/health', (_req, res) => {
   try { db.prepare('SELECT 1 AS ok').get(); res.json({ ok: true, database: 'ok', name: 'AngChat Harness' }); }
   catch (error) { sendError(res, error, 503); }
 });
-app.get('/api/harness/config', (_req, res) => res.json({ name: 'AngChat Harness', modes: { app: 'App', code: 'Code' }, providers: ['openai', 'local', 'anthropic', 'gemini', 'mock'], capabilities: ['persistent-sessions', 'model-library', 'openai-compatible-local-runtime', 'prompt-attachments'] }));
+app.get('/api/harness/config', (_req, res) => res.json({
+  name: 'AngChat Harness',
+  modes: { app: 'App', code: 'Code' },
+  providers: ['openai', 'local', 'ollama', 'anthropic', 'gemini', 'mock'],
+  capabilities: ['persistent-sessions', 'model-library', 'in-process-gguf-inference', 'openai-compatible-local-runtime', 'prompt-attachments', 'streaming', 'workspace-tools', 'agent-loop']
+}));
+app.get('/api/harness/tools', (_req, res) => res.json({ app: toolsForMode('app'), code: toolsForMode('code') }));
 app.get('/api/settings', (_req, res) => res.json(publicSettings(runtimeSettings)));
 app.put('/api/settings', (req, res) => {
   const runtime = models.runtimeStatus();
@@ -120,7 +132,8 @@ app.post('/api/sessions', (req, res) => {
 app.get('/api/sessions/:id/messages', (req, res) => {
   const sessionRow = db.prepare('SELECT id FROM sessions WHERE id = ? AND owner_id = ?').get(req.params.id, ownerId(req));
   if (!sessionRow) return res.status(404).json({ error: 'Session not found.' });
-  const messages = db.prepare('SELECT id,role,content,mode,status,created_at AS createdAt FROM messages WHERE session_id = ? ORDER BY id').all(req.params.id);
+  const messages = db.prepare('SELECT id,role,content,mode,status,meta,created_at AS createdAt FROM messages WHERE session_id = ? ORDER BY id').all(req.params.id)
+    .map(row => ({ ...row, meta: row.meta ? safeJson(row.meta) : null }));
   res.json(messages);
 });
 app.patch('/api/sessions/:id', (req, res) => {
@@ -137,31 +150,9 @@ app.delete('/api/sessions/:id', (req, res) => {
 });
 
 app.post('/api/harness/run', async (req, res) => {
-  const { mode = 'app', prompt = '', sessionId } = req.body || {};
-  if (typeof prompt !== 'string' || !prompt.trim()) return res.status(400).json({ error: 'Prompt is required.' });
-  if (prompt.length > 100000) return res.status(413).json({ error: 'Prompt and attachments must be under 100,000 characters.' });
-  if (!['app', 'code'].includes(mode)) return res.status(400).json({ error: 'Unsupported run mode.' });
-  let currentSessionId = sessionId;
-  if (!currentSessionId) {
-    currentSessionId = randomUUID();
-    db.prepare('INSERT INTO sessions (id,owner_id,title,mode) VALUES (?,?,?,?)').run(currentSessionId, ownerId(req), prompt.trim().slice(0, 72), mode);
-  } else {
-    const exists = db.prepare('SELECT id,title FROM sessions WHERE id = ? AND owner_id = ?').get(currentSessionId, ownerId(req));
-    if (!exists) return res.status(404).json({ error: 'Session not found.' });
-    if (exists.title === 'New session') db.prepare('UPDATE sessions SET title = ? WHERE id = ?').run(prompt.trim().slice(0, 72), currentSessionId);
-  }
-  db.prepare('INSERT INTO messages (session_id,role,content,mode,status) VALUES (?,?,?,?,?)').run(currentSessionId, 'user', prompt.trim(), mode, 'ok');
-  db.prepare('UPDATE sessions SET mode = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(mode, currentSessionId);
   try {
-    const result = await callProvider({ mode, prompt: prompt.trim(), settings: runtimeSettings });
-    db.prepare('INSERT INTO messages (session_id,role,content,mode,status) VALUES (?,?,?,?,?)').run(currentSessionId, 'assistant', result.text, mode, 'ok');
-    db.prepare('UPDATE sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(currentSessionId);
-    res.json({ sessionId: currentSessionId, mode, provider: runtimeSettings.provider, model: runtimeSettings.model, status: 'ok', ...result });
-  } catch (error) {
-    db.prepare('INSERT INTO messages (session_id,role,content,mode,status) VALUES (?,?,?,?,?)').run(currentSessionId, 'assistant', `Request failed: ${error.message}`, mode, 'error');
-    db.prepare('UPDATE sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(currentSessionId);
-    res.status(502).json({ sessionId: currentSessionId, status: 'error', error: error.message, provider: runtimeSettings.provider });
-  }
+    await runHarness({ req, res, db, ownerId: ownerId(req), settings: runtimeSettings, body: req.body || {} });
+  } catch (error) { sendError(res, error, 502); }
 });
 
 app.get('/api/models', (_req, res) => res.json(models.getModels(db)));
@@ -240,6 +231,99 @@ app.post('/api/models/runtime/stop', async (_req, res) => {
   res.json({ ok: true });
 });
 
+// --- Hermes Memory APIs ---
+app.get('/api/memory', (req, res) => {
+  try {
+    const list = memory.getRecentMemories(db, { ownerId: ownerId(req), category: req.query.category, limit: Number(req.query.limit) || 20 });
+    res.json(list);
+  } catch (err) { sendError(res, err); }
+});
+
+app.post('/api/memory', (req, res) => {
+  try {
+    const id = memory.addMemory(db, {
+      ownerId: ownerId(req),
+      category: req.body?.category || 'fact',
+      content: req.body?.content,
+      importance: Number(req.body?.importance) || 3
+    });
+    res.status(201).json({ id });
+  } catch (err) { sendError(res, err); }
+});
+
+app.get('/api/memory/search', (req, res) => {
+  try {
+    const results = memory.searchMemory(db, { ownerId: ownerId(req), query: req.query.q, limit: Number(req.query.limit) || 10 });
+    res.json(results);
+  } catch (err) { sendError(res, err); }
+});
+
+app.get('/api/memory/context-files', (_req, res) => {
+  res.json({
+    memory: memory.readContextFile('MEMORY.md'),
+    user: memory.readContextFile('USER.md')
+  });
+});
+
+app.put('/api/memory/context-files', (req, res) => {
+  try {
+    if (typeof req.body?.memory === 'string') memory.writeContextFile('MEMORY.md', req.body.memory);
+    if (typeof req.body?.user === 'string') memory.writeContextFile('USER.md', req.body.user);
+    res.json({ ok: true });
+  } catch (err) { sendError(res, err); }
+});
+
+// --- Hermes Skills APIs ---
+app.get('/api/skills', (_req, res) => {
+  try {
+    res.json(skills.listSkills(db));
+  } catch (err) { sendError(res, err); }
+});
+
+app.post('/api/skills', (req, res) => {
+  try {
+    const created = skills.createSkill(db, {
+      name: req.body?.name,
+      description: req.body?.description,
+      triggerPattern: req.body?.triggerPattern,
+      content: req.body?.content
+    });
+    res.status(201).json(created);
+  } catch (err) { sendError(res, err); }
+});
+
+app.get('/api/skills/:id', (req, res) => {
+  const skill = skills.getSkill(db, req.params.id);
+  if (!skill) return res.status(404).json({ error: 'Skill not found' });
+  res.json(skill);
+});
+
+app.put('/api/skills/:id', (req, res) => {
+  try {
+    const updated = skills.updateSkillContent(db, req.params.id, {
+      content: req.body?.content,
+      description: req.body?.description,
+      triggerPattern: req.body?.triggerPattern
+    });
+    res.json(updated);
+  } catch (err) { sendError(res, err); }
+});
+
+// --- Inference Token Counting & Embeddings ---
+app.post('/api/inference/tokenize', (req, res) => {
+  const text = req.body?.text || '';
+  const count = inference.countTokens(text);
+  res.json({ tokens: count });
+});
+
+app.post('/api/inference/embedding', async (req, res) => {
+  try {
+    const text = req.body?.text || '';
+    const vector = await inference.getEmbedding(text);
+    res.json({ embedding: vector });
+  } catch (err) { sendError(res, err, 500); }
+});
+
 app.get('/api/auth/me', (req, res) => res.json({ user: currentUser(req), registrationOpen: !db.prepare('SELECT 1 FROM users LIMIT 1').get() }));
 app.post('/api/signup', async (req, res) => {
   try {
@@ -297,6 +381,10 @@ app.delete('/api/users/:id', isAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+function safeJson(value) {
+  try { return JSON.parse(value); } catch { return null; }
+}
+
 function initializeDatabase() {
   db.exec(`CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL, email TEXT UNIQUE NOT NULL);`);
   const columns = db.prepare('PRAGMA table_info(users)').all().map(column => column.name);
@@ -321,14 +409,31 @@ function initializeDatabase() {
   );`);
   db.pragma('foreign_keys = ON');
   models.initModels(db);
+  memory.initMemory(db);
+  skills.initSkills(db);
+  const messageColumns = db.prepare('PRAGMA table_info(messages)').all().map(column => column.name);
+  if (!messageColumns.includes('meta')) db.exec('ALTER TABLE messages ADD COLUMN meta TEXT');
   const settingsColumns = db.prepare('PRAGMA table_info(harness_settings)').all().map(column => column.name);
   if (!settingsColumns.includes('active_model_id')) db.exec('ALTER TABLE harness_settings ADD COLUMN active_model_id TEXT');
-  const saved = db.prepare('SELECT provider,model,base_url,temperature,max_tokens,active_model_id FROM harness_settings WHERE id=1').get();
+  if (!settingsColumns.includes('tools_enabled')) db.exec('ALTER TABLE harness_settings ADD COLUMN tools_enabled INTEGER NOT NULL DEFAULT 1');
+  if (!settingsColumns.includes('inference_engine')) db.exec("ALTER TABLE harness_settings ADD COLUMN inference_engine TEXT NOT NULL DEFAULT 'auto'");
+  const saved = db.prepare('SELECT provider,model,base_url,temperature,max_tokens,active_model_id,tools_enabled,inference_engine FROM harness_settings WHERE id=1').get();
   resumeModelId = saved?.active_model_id || null;
-  if (saved) runtimeSettings = normalizeSettings({ provider: saved.provider, model: saved.model, baseUrl: saved.base_url, temperature: saved.temperature, maxTokens: saved.max_tokens }, runtimeSettings);
+  if (saved) {
+    runtimeSettings = normalizeSettings({
+      provider: saved.provider,
+      model: saved.model,
+      baseUrl: saved.base_url,
+      temperature: saved.temperature,
+      maxTokens: saved.max_tokens,
+      toolsEnabled: saved.tools_enabled !== 0,
+      inferenceEngine: saved.inference_engine || 'auto'
+    }, runtimeSettings);
+  }
 }
 
 initializeDatabase();
+inference.ensureLibrary().catch(() => {});
 const server = app.listen(port, '0.0.0.0', () => console.log(`AngChat Harness running at http://localhost:${port}`));
 if (resumeModelId && models.runtimeStatus().available) {
   setImmediate(async () => {

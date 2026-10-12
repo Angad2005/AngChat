@@ -5,6 +5,7 @@ const { randomUUID } = require('crypto');
 const { Readable, Transform } = require('stream');
 const { pipeline } = require('stream/promises');
 const { spawn } = require('child_process');
+const inference = require('./inference');
 
 const workspaceDir = path.join(__dirname, '..');
 const libraryDir = path.join(workspaceDir, 'models');
@@ -292,7 +293,7 @@ async function activateModel(db, id, settings) {
   }
   const previousProvider = settings.provider;
   const managedEndpoint = runtimeStatus().endpoint;
-  if (llamaProcess && !llamaProcess.killed) await stopRuntime();
+  await stopRuntime();
   if (previousProvider !== 'local') {
     settings.apiKey = '';
     settings.baseUrl = 'http://127.0.0.1:8080/v1';
@@ -302,6 +303,28 @@ async function activateModel(db, id, settings) {
   if (!settings.baseUrl) settings.baseUrl = 'http://127.0.0.1:8080/v1';
 
   let launched = false;
+  let engine = 'external';
+  if (settings.inferenceEngine === 'ollama') {
+    settings.provider = 'ollama';
+    if (!settings.baseUrl || settings.baseUrl.includes('/v1')) settings.baseUrl = 'http://127.0.0.1:11434';
+    activeModelId = model.id;
+    return { model: publicModel(model), settings, launched: false, engine: 'ollama', runtimeConfigured: true, endpoint: settings.baseUrl };
+  }
+  const preferInProcess = !settings.inferenceEngine || settings.inferenceEngine === 'auto' || settings.inferenceEngine === 'in-process';
+  if (inspection.launchPath && model.format !== 'transformers' && preferInProcess) {
+    try {
+      await inference.ensureLibrary();
+      await inference.load(inspection.launchPath, { contextSize: 4096, name: model.name });
+      launched = true;
+      engine = 'in-process';
+      activeModelId = model.id;
+      settings.provider = 'local';
+      settings.model = model.name;
+      return { model: publicModel(model), settings, launched, engine, runtimeConfigured: true, endpoint: 'in-process' };
+    } catch (error) {
+      if (settings.inferenceEngine === 'in-process') throw error;
+    }
+  }
   if (inspection.launchPath && model.format !== 'transformers' && runtime.available) {
     const executable = runtime.command;
     const port = await findPort();
@@ -342,8 +365,9 @@ async function activateModel(db, id, settings) {
     }
     settings.baseUrl = `http://127.0.0.1:${port}/v1`;
     launched = true;
+    engine = 'llama-server';
   }
-  return { model: publicModel(model), settings, launched, runtimeConfigured: runtime.available, endpoint: settings.baseUrl };
+  return { model: publicModel(model), settings, launched, engine, runtimeConfigured: runtime.available || inference.status().available, endpoint: engine === 'in-process' ? 'in-process' : settings.baseUrl };
 }
 
 async function stopRuntime() {
@@ -351,6 +375,7 @@ async function stopRuntime() {
   llamaProcess = null;
   activeModelId = null;
   llamaPort = null;
+  await inference.unload().catch(() => {});
   if (child && child.exitCode === null && !child.killed) {
     const exited = new Promise(resolve => child.once('exit', resolve));
     child.kill();
@@ -360,16 +385,27 @@ async function stopRuntime() {
 
 function runtimeStatus() {
   const runtime = llamaExecutable();
+  const inProcess = inference.status();
+  const serverRunning = Boolean(llamaProcess && !llamaProcess.killed);
   return {
-    configured: runtime.available,
-    available: runtime.available,
-    source: runtime.source,
-    executable: runtime.name,
-    configurationError: runtime.configured && !runtime.available ? `Could not find ${runtime.name} on disk or on PATH.` : null,
-    running: Boolean(llamaProcess && !llamaProcess.killed),
-    modelId: activeModelId,
+    configured: runtime.available || inProcess.loaded || !inProcess.error,
+    available: runtime.available || Boolean(inProcess.loaded) || inProcess.available,
+    source: inProcess.loaded ? 'in-process' : runtime.source,
+    executable: inProcess.loaded ? 'node-llama-cpp' : runtime.name,
+    configurationError: !inProcess.loaded && runtime.configured && !runtime.available ? `Could not find ${runtime.name} on disk or on PATH.` : (inProcess.error && !runtime.available ? inProcess.error : null),
+    running: serverRunning || Boolean(inProcess.loaded),
+    engine: inProcess.loaded ? 'in-process' : (serverRunning ? 'llama-server' : null),
+    inProcess,
+    llamaServer: {
+      available: runtime.available,
+      running: serverRunning,
+      executable: runtime.name,
+      source: runtime.source
+    },
+    modelId: activeModelId || null,
+    loadedModel: inProcess.modelName || null,
     port: llamaPort,
-    endpoint: llamaPort ? `http://127.0.0.1:${llamaPort}/v1` : null
+    endpoint: inProcess.loaded ? 'in-process' : (llamaPort ? `http://127.0.0.1:${llamaPort}/v1` : null)
   };
 }
 
