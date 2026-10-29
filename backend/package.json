@@ -1,16 +1,16 @@
 {
-  "name": "angchat-harness-backend",
+  "name": "chat-engineering-harness-backend",
   "version": "1.0.0",
-  "description": "Portable Node backend for the AngChat AI harness",
+  "description": "Portable Node backend for the Chat Engineering Harness",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
-    "test": "node --check index.js providers.js models.js tools.js inference.js harness.js memory.js skills.js context.js && node test.js"
+    "test": "node --check index.js initialize-database.js providers.js models.js tools.js inference.js harness.js memory.js skills.js context.js verification.js traces.js && node test.js"
   },
   "keywords": ["ai", "harness", "claude-code", "gemini"],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "better-sqlite3": "^13.0.3",
     "cors": "^2.8.6",

@@ -1,9 +1,10 @@
 const { randomUUID } = require('crypto');
 const { completeTurn, completeTurnWithFallback } = require('./providers');
-const { executeTool, parseToolCalls, stripToolMarkup } = require('./tools');
+const { executeTool, parseToolCalls, readProjectInstructions, stripToolMarkup } = require('./tools');
 const memory = require('./memory');
 const skills = require('./skills');
 const context = require('./context');
+const traces = require('./traces');
 
 const MAX_ROUNDS = 12;
 const HISTORY_LIMIT = 30;
@@ -96,6 +97,7 @@ async function runHarness({ req, res, db, ownerId, settings, body }) {
     toolsEnabled,
     memoryContext,
     skillContext,
+    projectInstructions: mode === 'code' ? readProjectInstructions() : '',
     customSystemPrompt
   });
 
@@ -177,7 +179,28 @@ async function runHarness({ req, res, db, ownerId, settings, body }) {
     // Hermes Closed Learning Loop: Check for persistence nudges
     const memoryNudges = memory.nudgeMemoryPersistence(db, { ownerId, messages });
 
-    const meta = JSON.stringify({ tools: toolsUsed, usage, engine, mock, fallbackUsed, memoryNudges });
+    let traceCaptureError = null;
+    let traceCaptured = false;
+    if (traces.captureEnabled()) {
+      try {
+        traceCaptured = traces.appendExecutionTrace({
+          sessionId,
+          mode,
+          provider: settings.provider,
+          model: settings.model,
+          prompt,
+          response: finalText,
+          tools: toolsUsed.map(({ name, ok }) => ({ name, ok })),
+          usage,
+          status: 'ok'
+        });
+      } catch (error) {
+        traceCaptureError = error.message;
+        console.error(`Could not write local execution trace: ${error.message}`);
+      }
+    }
+
+    const meta = JSON.stringify({ tools: toolsUsed, usage, engine, mock, fallbackUsed, memoryNudges, traceCaptured, traceCaptureError });
     db.prepare('INSERT INTO messages (session_id,role,content,mode,status,meta) VALUES (?,?,?,?,?,?)')
       .run(sessionId, 'assistant', finalText, mode, 'ok', meta);
     db.prepare('UPDATE sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(sessionId);
@@ -193,7 +216,9 @@ async function runHarness({ req, res, db, ownerId, settings, body }) {
       usage,
       fallbackUsed,
       tools: toolsUsed,
-      memoryNudges
+      memoryNudges,
+      traceCaptured,
+      traceCaptureError
     };
     if (stream) {
       emit('done', payload);

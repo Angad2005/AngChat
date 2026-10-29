@@ -2,7 +2,8 @@ const fs = require('fs');
 const path = require('path');
 
 const workspaceDir = path.resolve(__dirname, '..');
-const memoryDir = workspaceDir; // store MEMORY.md and USER.md in root workspace
+const memoryDir = path.join(workspaceDir, '.chat', 'brain');
+const legacyMemoryDir = workspaceDir;
 
 function getFilePath(filename) {
   return path.join(memoryDir, filename);
@@ -111,19 +112,16 @@ function pruneExpired(db) {
 function readContextFile(name) {
   const safeName = path.basename(name);
   const target = getFilePath(safeName);
-  try {
-    if (fs.existsSync(target)) {
-      return fs.readFileSync(target, 'utf8');
-    }
-  } catch (e) {
-    // ignore
-  }
+  if (fs.existsSync(target)) return fs.readFileSync(target, 'utf8');
+  const legacyTarget = path.join(legacyMemoryDir, safeName);
+  if (fs.existsSync(legacyTarget)) return fs.readFileSync(legacyTarget, 'utf8');
   return '';
 }
 
 function writeContextFile(name, content) {
   const safeName = path.basename(name);
   const target = getFilePath(safeName);
+  fs.mkdirSync(memoryDir, { recursive: true });
   fs.writeFileSync(target, content, 'utf8');
 }
 
@@ -132,6 +130,7 @@ function appendContextFile(name, entry) {
   const target = getFilePath(safeName);
   const timestamp = new Date().toISOString().split('T')[0];
   const formatted = `\n- [${timestamp}] ${entry.trim()}`;
+  fs.mkdirSync(memoryDir, { recursive: true });
   fs.appendFileSync(target, formatted, 'utf8');
 }
 
@@ -187,6 +186,7 @@ function nudgeMemoryPersistence(db, { ownerId = 'default', messages = [] }) {
 }
 
 module.exports = {
+  memoryDir,
   initMemory,
   addMemory,
   searchMemory,

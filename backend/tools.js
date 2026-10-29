@@ -2,14 +2,29 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 
-const workspaceDir = path.resolve(__dirname, '..');
+const workspaceSettingsFile = path.resolve(process.env.CHAT_WORKSPACE_SETTINGS_FILE || path.join(__dirname, '..', '.chat', 'workspace.local.json'));
+let workspaceDir = path.resolve(process.env.CHAT_WORKSPACE || path.join(__dirname, '..'));
+if (!fs.statSync(workspaceDir).isDirectory()) throw new Error(`Project path is not a directory: ${workspaceDir}`);
+workspaceDir = fs.realpathSync(workspaceDir);
+if (!process.env.CHAT_WORKSPACE && fs.existsSync(workspaceSettingsFile)) {
+  try {
+    const savedWorkspace = JSON.parse(fs.readFileSync(workspaceSettingsFile, 'utf8'));
+    if (savedWorkspace.version === 1) setWorkspaceDir(savedWorkspace.path);
+  } catch (error) {
+    console.error(`Ignoring saved project path: ${error.message}`);
+  }
+}
 const MAX_READ_BYTES = 100_000;
 const MAX_WRITE_BYTES = 200_000;
 const MAX_TOOL_CHARS = 24_000;
 const MAX_SEARCH_HITS = 40;
 const COMMAND_TIMEOUT_MS = 20_000;
 
-const SKIP_DIR_NAMES = new Set(['node_modules', '.git', 'dist', 'build', '.cursor']);
+const SKIP_DIR_NAMES = new Set(['node_modules', '.git', 'dist', 'build', '.cursor', 'vendor', 'coverage']);
+const VISIBLE_HIDDEN_NAMES = new Set(['.claude', '.chat', '.github', '.husky', '.vscode']);
+const CODE_ONLY_TOOLS = new Set([
+  'write_file', 'run_command', 'bash', 'patch_file', 'edit_file', 'git_status', 'git_diff'
+]);
 const BLOCKED_RELATIVE = new Set([
   'backend/.env',
   'backend/chat.db',
@@ -19,8 +34,37 @@ const BLOCKED_RELATIVE = new Set([
 
 const TOOL_SCHEMAS = [
   {
+    name: 'glob',
+    description: 'Find project files by a glob pattern such as **/*.ts or src/**/*.test.js. Returns workspace-relative paths.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        pattern: { type: 'string', description: 'Glob pattern matched against paths relative to the project root.' },
+        path: { type: 'string', description: 'Optional directory to search within.' },
+        limit: { type: 'integer', description: 'Maximum number of paths to return (1–200).' }
+      },
+      required: ['pattern']
+    }
+  },
+  {
+    name: 'grep',
+    description: 'Search project text files with a regular expression. Returns matching lines and optional context.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        pattern: { type: 'string', description: 'JavaScript regular expression source.' },
+        path: { type: 'string', description: 'Optional file or directory to search.' },
+        glob: { type: 'string', description: 'Optional path glob, for example **/*.js.' },
+        contextLines: { type: 'integer', description: 'Number of surrounding lines to include (0–5).' }
+      },
+      required: ['pattern']
+    }
+  },
+  {
     name: 'read_file',
-    description: 'Read a UTF-8 text file from the AngChat workspace. Paths are relative to the project root unless absolute and still inside the workspace.',
+    description: 'Read a UTF-8 text file from the selected project. Paths are relative to the project root unless absolute and still inside the project.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -34,7 +78,7 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'list_dir',
-    description: 'List files and folders in a workspace directory.',
+    description: 'List files and folders in the selected project directory.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -46,7 +90,7 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'search_files',
-    description: 'Search workspace text files for a regular expression. Skips node_modules, .git, and model weights.',
+    description: 'Search selected-project text files for a regular expression. Skips vendor folders, secrets, and model weights.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -60,7 +104,7 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'write_file',
-    description: 'Create or overwrite a UTF-8 text file inside the workspace. Does not write secrets, databases, or files outside the project.',
+    description: 'Create or overwrite a UTF-8 text file inside the selected project. Does not write secrets or files outside the project.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -81,6 +125,47 @@ const TOOL_SCHEMAS = [
         command: { type: 'string', description: 'Shell command to run.' }
       },
       required: ['command']
+    }
+  },
+  {
+    name: 'bash',
+    description: 'Run a non-interactive shell command in the selected project directory. Intended for tests, builds, and local project commands; stopped after 20 seconds.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { command: { type: 'string', description: 'Shell command to run.' } },
+      required: ['command']
+    }
+  },
+  {
+    name: 'edit_file',
+    description: 'Replace one exact text occurrence in an existing project file. Fails if the target is missing or ambiguous.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        path: { type: 'string', description: 'Project-relative file path.' },
+        old_string: { type: 'string', description: 'Exact text to replace.' },
+        new_string: { type: 'string', description: 'Replacement text.' }
+      },
+      required: ['path', 'old_string', 'new_string']
+    }
+  },
+  {
+    name: 'git_status',
+    description: 'Read the current Git branch and working-tree status for the selected project.',
+    parameters: { type: 'object', additionalProperties: false, properties: {} }
+  },
+  {
+    name: 'git_diff',
+    description: 'Read the unstaged or staged Git diff for the selected project, optionally limited to a project-relative path.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        path: { type: 'string', description: 'Optional project-relative path to limit the diff.' },
+        staged: { type: 'boolean', description: 'Show the staged diff instead of the unstaged diff.' }
+      }
     }
   },
   {
@@ -153,7 +238,7 @@ const TOOL_SCHEMAS = [
 
 function toolsForMode(mode) {
   if (mode === 'code') return TOOL_SCHEMAS;
-  return TOOL_SCHEMAS.filter(tool => tool.name !== 'write_file' && tool.name !== 'run_command');
+  return TOOL_SCHEMAS.filter(tool => !CODE_ONLY_TOOLS.has(tool.name));
 }
 
 function openaiTools(mode) {
@@ -197,17 +282,66 @@ function toolPrompt(mode) {
   ].join('\n');
 }
 
+function setWorkspaceDir(inputPath) {
+  if (typeof inputPath !== 'string' || !inputPath.trim() || inputPath.length > 4096) {
+    throw new Error('Enter an absolute path to a project directory.');
+  }
+  if (!path.isAbsolute(inputPath)) throw new Error('Project path must be absolute.');
+  const resolved = fs.realpathSync(path.resolve(inputPath.trim()));
+  if (!fs.statSync(resolved).isDirectory()) throw new Error('Project path must be a directory.');
+  if (resolved === path.parse(resolved).root) throw new Error('The filesystem root cannot be used as a project directory.');
+  workspaceDir = resolved;
+  return workspaceDir;
+}
+
+function persistWorkspaceDir() {
+  fs.mkdirSync(path.dirname(workspaceSettingsFile), { recursive: true, mode: 0o700 });
+  const temporary = `${workspaceSettingsFile}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify({ version: 1, path: workspaceDir }, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  fs.renameSync(temporary, workspaceSettingsFile);
+  fs.chmodSync(workspaceSettingsFile, 0o600);
+  return workspaceSettingsFile;
+}
+
+function isWithinWorkspace(candidate) {
+  const relative = path.relative(workspaceDir, candidate);
+  return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+function isBlockedPath(relative) {
+  const normalized = relative.split(path.sep).join('/');
+  const segments = normalized.toLowerCase().split('/');
+  const basename = segments[segments.length - 1] || '';
+  return BLOCKED_RELATIVE.has(normalized)
+    || segments.some(segment => /^\.env(?:$|\.)/.test(segment))
+    || ['.npmrc', '.netrc', 'id_rsa', 'id_ed25519', 'credentials.json'].includes(basename)
+    || /\.(?:pem|p12|pfx|key)$/.test(basename);
+}
+
 function resolveWorkspacePath(inputPath = '.') {
   const requested = String(inputPath || '.').trim() || '.';
-  const resolved = path.resolve(workspaceDir, requested);
-  const relative = path.relative(workspaceDir, resolved);
-  if (relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new Error('That path is outside the AngChat workspace.');
+  const candidate = path.resolve(workspaceDir, requested);
+  const relative = path.relative(workspaceDir, candidate);
+  if (!isWithinWorkspace(candidate)) {
+    throw new Error('That path is outside the Chat workspace.');
   }
-  const normalized = relative.split(path.sep).join('/');
-  if (BLOCKED_RELATIVE.has(normalized) || normalized.endsWith('.env')) {
+  if (isBlockedPath(relative)) {
     throw new Error('That file is blocked from tool access.');
   }
+
+  let existing = candidate;
+  while (!fs.existsSync(existing)) {
+    const parent = path.dirname(existing);
+    if (parent === existing) throw new Error('Could not resolve a path inside the project.');
+    existing = parent;
+  }
+  const realExisting = fs.realpathSync(existing);
+  if (!isWithinWorkspace(realExisting)) throw new Error('That path resolves outside the selected project.');
+  const resolved = existing === candidate
+    ? realExisting
+    : path.resolve(realExisting, path.relative(existing, candidate));
+  const normalized = path.relative(workspaceDir, resolved).split(path.sep).join('/');
+  if (isBlockedPath(normalized)) throw new Error('That file is blocked from tool access.');
   return { resolved, relative: normalized || '.' };
 }
 
@@ -219,8 +353,22 @@ function truncate(text) {
 
 function globToRegExp(glob) {
   if (!glob) return null;
-  const escaped = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
-  return new RegExp(`^${escaped}$`, 'i');
+  let pattern = '';
+  for (let index = 0; index < glob.length; index++) {
+    const char = glob[index];
+    if (char === '*' && glob[index + 1] === '*') {
+      if (glob[index + 2] === '/') {
+        pattern += '(?:.*/)?';
+        index += 2;
+      } else {
+        pattern += '.*';
+        index++;
+      }
+    } else if (char === '*') pattern += '[^/]*';
+    else if (char === '?') pattern += '[^/]';
+    else pattern += char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`^${pattern}$`, 'i');
 }
 
 async function readFileTool(args) {
@@ -240,6 +388,29 @@ async function readFileTool(args) {
   return truncate(`${relative} (${stat.size} bytes)\n${text}`);
 }
 
+function readProjectInstructions() {
+  const files = ['AGENTS.md', 'CLAUDE.md', '.claude/CLAUDE.md', '.github/copilot-instructions.md'];
+  const sections = [];
+  for (const file of files) {
+    let resolved;
+    try {
+      resolved = resolveWorkspacePath(file).resolved;
+    } catch (error) {
+      if (error.code === 'ENOENT') continue;
+      throw error;
+    }
+    if (!fs.existsSync(resolved)) continue;
+    const stat = fs.statSync(resolved);
+    if (!stat.isFile() || stat.size > MAX_READ_BYTES) {
+      throw new Error(`Project instruction file ${file} is not a readable text file under ${MAX_READ_BYTES} bytes.`);
+    }
+    const raw = fs.readFileSync(resolved);
+    if (raw.includes(0)) throw new Error(`Project instruction file ${file} contains binary data.`);
+    sections.push(`### ${file}\n${raw.toString('utf8')}`);
+  }
+  return truncate(sections.join('\n\n'));
+}
+
 async function listDirTool(args) {
   const { resolved, relative } = resolveWorkspacePath(args.path || '.');
   const depth = Math.min(3, Math.max(1, Number(args.depth) || 1));
@@ -248,7 +419,7 @@ async function listDirTool(args) {
     const entries = await fs.promises.readdir(directory, { withFileTypes: true });
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
-      if (entry.name.startsWith('.') && entry.name !== '.env.example') continue;
+      if (entry.name.startsWith('.') && !VISIBLE_HIDDEN_NAMES.has(entry.name)) continue;
       if (SKIP_DIR_NAMES.has(entry.name)) continue;
       const child = path.join(directory, entry.name);
       const label = prefix ? `${prefix}/${entry.name}` : entry.name;
@@ -271,45 +442,140 @@ async function searchFilesTool(args) {
   let regex;
   try { regex = new RegExp(String(args.pattern), 'i'); }
   catch { throw new Error('Invalid regular expression.'); }
-  const root = resolveWorkspacePath(args.path || '.').resolved;
+  const { resolved: root } = resolveWorkspacePath(args.path || '.');
   const nameFilter = globToRegExp(args.glob);
   const hits = [];
   async function walk(directory) {
+    const stat = await fs.promises.stat(directory);
+    if (stat.isFile()) {
+      await searchFile(directory);
+      return;
+    }
     let entries;
     try { entries = await fs.promises.readdir(directory, { withFileTypes: true }); }
     catch { return; }
     for (const entry of entries) {
       if (hits.length >= MAX_SEARCH_HITS) return;
-      if (SKIP_DIR_NAMES.has(entry.name) || (entry.name.startsWith('.') && entry.name !== '.env.example')) continue;
+      if (SKIP_DIR_NAMES.has(entry.name) || (entry.name.startsWith('.') && !VISIBLE_HIDDEN_NAMES.has(entry.name))) continue;
       const child = path.join(directory, entry.name);
       if (entry.isDirectory()) await walk(child);
-      else if (entry.isFile()) {
-        if (nameFilter && !nameFilter.test(entry.name)) continue;
-        if (entry.name.toLowerCase().endsWith('.gguf') || entry.name.endsWith('.db')) continue;
-        let stat;
-        try { stat = await fs.promises.stat(child); } catch { continue; }
-        if (stat.size > MAX_READ_BYTES) continue;
-        let text;
-        try {
-          const raw = await fs.promises.readFile(child);
-          if (raw.includes(0)) continue;
-          text = raw.toString('utf8');
-        } catch { continue; }
-        const relative = path.relative(workspaceDir, child).split(path.sep).join('/');
-        const lines = text.split(/\r?\n/);
-        for (let index = 0; index < lines.length; index++) {
-          if (regex.test(lines[index])) {
-            hits.push(`${relative}:${index + 1}:${lines[index].trim().slice(0, 240)}`);
-            if (hits.length >= MAX_SEARCH_HITS) break;
-          }
-        }
+      else if (entry.isFile()) await searchFile(child);
+    }
+  }
+  async function searchFile(file) {
+    if (hits.length >= MAX_SEARCH_HITS) return;
+    const relative = path.relative(workspaceDir, file).split(path.sep).join('/');
+    if (isBlockedPath(relative) || nameFilter && !nameFilter.test(relative)) return;
+    if (file.toLowerCase().endsWith('.gguf') || file.endsWith('.db')) return;
+    let stat;
+    try { stat = await fs.promises.stat(file); } catch { return; }
+    if (stat.size > MAX_READ_BYTES) return;
+    let text;
+    try {
+      const raw = await fs.promises.readFile(file);
+      if (raw.includes(0)) return;
+      text = raw.toString('utf8');
+    } catch { return; }
+    const lines = text.split(/\r?\n/);
+    const contextLines = Math.min(5, Math.max(0, Number(args.contextLines) || 0));
+    for (let index = 0; index < lines.length; index++) {
+      regex.lastIndex = 0;
+      if (regex.test(lines[index])) {
+        const start = Math.max(0, index - contextLines);
+        const end = Math.min(lines.length, index + contextLines + 1);
+        hits.push(`${relative}:${index + 1}:${lines.slice(start, end).map((line, offset) => `${start + offset + 1}|${line}`).join('\n')}`);
+        if (hits.length >= MAX_SEARCH_HITS) break;
       }
     }
   }
   const stat = await fs.promises.stat(root);
-  if (stat.isFile()) await walk(path.dirname(root));
+  if (stat.isFile()) await searchFile(root);
   else await walk(root);
   return truncate(hits.length ? hits.join('\n') : 'No matches.');
+}
+
+async function globFilesTool(args) {
+  const matcher = globToRegExp(String(args.pattern || ''));
+  if (!matcher) throw new Error('A glob pattern is required.');
+  const { resolved: root } = resolveWorkspacePath(args.path || '.');
+  const limit = Math.min(200, Math.max(1, Number(args.limit) || 100));
+  const matches = [];
+  async function walk(directory) {
+    if (matches.length >= limit) return;
+    const entries = await fs.promises.readdir(directory, { withFileTypes: true });
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      if (matches.length >= limit) break;
+      if (SKIP_DIR_NAMES.has(entry.name) || entry.name.startsWith('.') && !VISIBLE_HIDDEN_NAMES.has(entry.name)) continue;
+      const child = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await walk(child);
+      } else if (entry.isFile()) {
+        const relative = path.relative(workspaceDir, child).split(path.sep).join('/');
+        if (isBlockedPath(relative) || /\.(?:gguf|db)$/i.test(entry.name)) continue;
+        const searchRelative = path.relative(root, child).split(path.sep).join('/');
+        if (matcher.test(searchRelative)) matches.push(relative);
+      }
+    }
+  }
+  const stat = await fs.promises.stat(root);
+  if (stat.isFile()) {
+    const relative = path.relative(workspaceDir, root).split(path.sep).join('/');
+    if (!isBlockedPath(relative) && matcher.test(path.basename(relative))) matches.push(relative);
+  } else {
+    await walk(root);
+  }
+  return matches.length ? matches.join('\n') : 'No files matched.';
+}
+
+async function editFileTool(args) {
+  const target = String(args.old_string ?? args.target ?? '');
+  if (!target) throw new Error('The exact text to replace is required.');
+  const replacement = String(args.new_string ?? args.replacement ?? '');
+  if (Buffer.byteLength(replacement, 'utf8') > MAX_WRITE_BYTES) throw new Error('Replacement text is too large.');
+  const { resolved, relative } = resolveWorkspacePath(args.path);
+  const stat = await fs.promises.stat(resolved);
+  if (!stat.isFile()) throw new Error('Path is not a file.');
+  if (stat.size > MAX_WRITE_BYTES) throw new Error('File is too large to edit with this tool.');
+  const content = await fs.promises.readFile(resolved, 'utf8');
+  const first = content.indexOf(target);
+  if (first === -1) throw new Error(`Target text not found in ${relative}.`);
+  if (content.indexOf(target, first + target.length) !== -1) {
+    throw new Error(`Target text occurs more than once in ${relative}; provide a more specific snippet.`);
+  }
+  await fs.promises.writeFile(resolved, content.slice(0, first) + replacement + content.slice(first + target.length), 'utf8');
+  return `Edited ${relative}.`;
+}
+
+function runGitTool(args, { staged = false, diff = false } = {}) {
+  const gitArgs = diff
+    ? ['diff', ...(staged ? ['--cached'] : []), '--', ...(args.path ? [resolveWorkspacePath(args.path).relative] : [])]
+    : ['status', '--short', '--branch'];
+  return new Promise((resolve, reject) => {
+    const child = spawn('git', gitArgs, {
+      cwd: workspaceDir,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    let stdout = '';
+    let stderr = '';
+    const append = (current, chunk) => (current + chunk.toString()).slice(0, MAX_TOOL_CHARS);
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error('Git inspection timed out.'));
+    }, COMMAND_TIMEOUT_MS);
+    child.stdout.on('data', chunk => { stdout = append(stdout, chunk); });
+    child.stderr.on('data', chunk => { stderr = append(stderr, chunk); });
+    child.once('error', error => {
+      clearTimeout(timer);
+      reject(new Error(`Could not run Git: ${error.message}`));
+    });
+    child.once('close', code => {
+      clearTimeout(timer);
+      if (code !== 0) return reject(new Error(stderr.trim() || `Git exited with code ${code}.`));
+      resolve(truncate(stdout.trim() || '(no changes)'));
+    });
+  });
 }
 
 async function writeFileTool(args) {
@@ -329,7 +595,7 @@ function runCommandTool(args, signal) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, {
       cwd: workspaceDir,
-      env: { ...process.env, ANGCHAT_TOOL: '1' },
+      env: { ...process.env, CHAT_TOOL: '1' },
       shell: true,
       windowsHide: true
     });
@@ -361,22 +627,17 @@ function runCommandTool(args, signal) {
 }
 
 async function patchFileTool(args) {
-  const { path: filePath, target, replacement } = args;
-  if (!target) throw new Error('Target string is required.');
-  const { resolved, relative } = resolveWorkspacePath(filePath);
-  const content = await fs.promises.readFile(resolved, 'utf8');
-  if (!content.includes(target)) {
-    throw new Error(`Target snippet not found in ${relative}. Ensure exact match.`);
-  }
-  const updated = content.replace(target, replacement ?? '');
-  await fs.promises.writeFile(resolved, updated, 'utf8');
-  return `Successfully patched ${relative}. Replaced ${target.length} chars with ${(replacement || '').length} chars.`;
+  return editFileTool({
+    path: args.path,
+    old_string: args.target,
+    new_string: args.replacement
+  });
 }
 
 async function webFetchTool(args) {
   const url = args.url;
   if (!url || !url.startsWith('http')) throw new Error('Valid HTTP/HTTPS URL required.');
-  const response = await fetch(url, { headers: { 'User-Agent': 'AngChat-Agent/2.0' } });
+  const response = await fetch(url, { headers: { 'User-Agent': 'Chat-Agent/2.0' } });
   if (!response.ok) throw new Error(`HTTP fetch failed with code ${response.status}`);
   const text = await response.text();
   // Strip tags for clean readable text
@@ -433,9 +694,15 @@ async function executeTool(name, rawArgs, { signal, db, ownerId } = {}) {
     case 'read_file': return readFileTool(args);
     case 'list_dir': return listDirTool(args);
     case 'search_files': return searchFilesTool(args);
+    case 'glob': return globFilesTool(args);
+    case 'grep': return searchFilesTool(args);
     case 'write_file': return writeFileTool(args);
-    case 'run_command': return runCommandTool(args, signal);
+    case 'run_command':
+    case 'bash': return runCommandTool(args, signal);
     case 'patch_file': return patchFileTool(args);
+    case 'edit_file': return editFileTool(args);
+    case 'git_status': return runGitTool(args);
+    case 'git_diff': return runGitTool(args, { staged: args.staged === true, diff: true });
     case 'web_fetch': return webFetchTool(args);
     case 'memory_store': return memoryStoreTool(args, db, ownerId);
     case 'memory_recall': return memoryRecallTool(args, db, ownerId);
@@ -485,7 +752,10 @@ function stripToolMarkup(text) {
 }
 
 module.exports = {
-  workspaceDir,
+  getWorkspaceDir: () => workspaceDir,
+  setWorkspaceDir,
+  persistWorkspaceDir,
+  readProjectInstructions,
   TOOL_SCHEMAS,
   toolsForMode,
   openaiTools,

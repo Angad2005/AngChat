@@ -12,7 +12,8 @@ const inference = require('./inference');
 const memory = require('./memory');
 const skills = require('./skills');
 const { runHarness } = require('./harness');
-const { toolsForMode } = require('./tools');
+const { toolsForMode, getWorkspaceDir, persistWorkspaceDir, setWorkspaceDir } = require('./tools');
+const { initializeDatabase } = require('./initialize-database');
 
 const scrypt = promisify(scryptCallback);
 const app = express();
@@ -47,6 +48,18 @@ function isAdmin(req, res, next) {
 
 function ownerId(req) { return req.session?.userId ? String(req.session.userId) : 'local'; }
 function sendError(res, error, status = 400) { res.status(status).json({ error: error.message || String(error) }); }
+function isLoopbackRequest(req) {
+  const address = req.socket?.remoteAddress || '';
+  return address === '127.0.0.1' || address === '::1' || address.startsWith('::ffff:127.');
+}
+function requireLoopback(req, res, next) {
+  if (isLoopbackRequest(req)) return next();
+  return res.status(403).json({ error: 'Project paths can only be changed from the local machine.' });
+}
+function requireLocalWorkspaceAccess(req, res, next) {
+  if (isLoopbackRequest(req)) return next();
+  return res.status(403).json({ error: 'Workspace-backed agent runs are only available from the local machine.' });
+}
 function validAccount({ username, email, password }, passwordRequired = true) {
   if (typeof username !== 'string' || !/^[A-Za-z0-9_.-]{2,32}$/.test(username.trim())) throw new Error('Username must be 2–32 letters, numbers, dots, dashes, or underscores.');
   if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) throw new Error('Enter a valid email address.');
@@ -92,16 +105,30 @@ app.get('/auth', (_req, res) => res.sendFile(path.join(publicDir, 'Login.html'))
 app.get('/admin', isAuthenticated, isAdmin, (_req, res) => res.sendFile(path.join(publicDir, 'Admin.html')));
 
 app.get('/api/health', (_req, res) => {
-  try { db.prepare('SELECT 1 AS ok').get(); res.json({ ok: true, database: 'ok', name: 'AngChat Harness' }); }
+  try { db.prepare('SELECT 1 AS ok').get(); res.json({ ok: true, database: 'ok', name: 'Chat Engineering Harness' }); }
   catch (error) { sendError(res, error, 503); }
 });
 app.get('/api/harness/config', (_req, res) => res.json({
-  name: 'AngChat Harness',
+  name: 'Chat Engineering Harness',
   modes: { app: 'App', code: 'Code' },
-  providers: ['openai', 'local', 'ollama', 'anthropic', 'gemini', 'mock'],
-  capabilities: ['persistent-sessions', 'model-library', 'in-process-gguf-inference', 'openai-compatible-local-runtime', 'prompt-attachments', 'streaming', 'workspace-tools', 'agent-loop']
+  providers: ['openai', 'nebius', 'local', 'ollama', 'anthropic', 'gemini', 'mock'],
+  capabilities: ['persistent-sessions', 'model-library', 'in-process-gguf-inference', 'openai-compatible-local-runtime', 'prompt-attachments', 'streaming', 'workspace-tools', 'agent-loop', 'project-path', 'glob', 'grep', 'file-edit', 'git-inspection']
 }));
 app.get('/api/harness/tools', (_req, res) => res.json({ app: toolsForMode('app'), code: toolsForMode('code') }));
+app.get('/api/workspace', requireLoopback, (_req, res) => {
+  res.json({ path: getWorkspaceDir() });
+});
+app.put('/api/workspace', requireLoopback, (req, res) => {
+  const previous = getWorkspaceDir();
+  try {
+    const workspacePath = setWorkspaceDir(req.body?.path);
+    persistWorkspaceDir();
+    res.json({ path: workspacePath });
+  } catch (error) {
+    setWorkspaceDir(previous);
+    sendError(res, error);
+  }
+});
 app.get('/api/settings', (_req, res) => res.json(publicSettings(runtimeSettings)));
 app.put('/api/settings', (req, res) => {
   const runtime = models.runtimeStatus();
@@ -149,7 +176,7 @@ app.delete('/api/sessions/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/api/harness/run', async (req, res) => {
+app.post('/api/harness/run', requireLocalWorkspaceAccess, async (req, res) => {
   try {
     await runHarness({ req, res, db, ownerId: ownerId(req), settings: runtimeSettings, body: req.body || {} });
   } catch (error) { sendError(res, error, 502); }
@@ -376,7 +403,7 @@ app.delete('/api/users/:id', isAdmin, (req, res) => {
   if (String(req.session.userId) === String(req.params.id)) return res.status(400).json({ error: 'You cannot delete the account you are signed in with.' });
   const user = db.prepare('SELECT role FROM users WHERE id=?').get(req.params.id);
   if (!user) return res.status(404).json({ error: 'User not found.' });
-  if (user.role === 'admin' && db.prepare('SELECT COUNT(*) AS count FROM users WHERE role="admin"').get().count <= 1) return res.status(400).json({ error: 'The last administrator cannot be deleted.' });
+  if (user.role === 'admin' && db.prepare('SELECT COUNT(*) AS count FROM users WHERE role = ?').get('admin').count <= 1) return res.status(400).json({ error: 'The last administrator cannot be deleted.' });
   db.prepare('DELETE FROM users WHERE id=?').run(req.params.id);
   res.json({ ok: true });
 });
@@ -385,39 +412,8 @@ function safeJson(value) {
   try { return JSON.parse(value); } catch { return null; }
 }
 
-function initializeDatabase() {
-  db.exec(`CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL, email TEXT UNIQUE NOT NULL);`);
-  const columns = db.prepare('PRAGMA table_info(users)').all().map(column => column.name);
-  if (!columns.includes('role')) db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
-  if (!db.prepare('SELECT 1 FROM users WHERE role = "admin" LIMIT 1').get()) {
-    db.prepare('UPDATE users SET role = "admin" WHERE id = (SELECT MIN(id) FROM users)').run();
-  }
-  db.exec(`CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, title TEXT NOT NULL DEFAULT 'New session',
-    mode TEXT NOT NULL DEFAULT 'app', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    role TEXT NOT NULL, content TEXT NOT NULL, mode TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'ok',
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE TABLE IF NOT EXISTS harness_settings (
-    id INTEGER PRIMARY KEY CHECK (id = 1), provider TEXT NOT NULL, model TEXT NOT NULL,
-    base_url TEXT NOT NULL DEFAULT '', temperature REAL NOT NULL DEFAULT 0.2,
-    max_tokens INTEGER NOT NULL DEFAULT 1200, active_model_id TEXT
-  );`);
-  db.pragma('foreign_keys = ON');
-  models.initModels(db);
-  memory.initMemory(db);
-  skills.initSkills(db);
-  const messageColumns = db.prepare('PRAGMA table_info(messages)').all().map(column => column.name);
-  if (!messageColumns.includes('meta')) db.exec('ALTER TABLE messages ADD COLUMN meta TEXT');
-  const settingsColumns = db.prepare('PRAGMA table_info(harness_settings)').all().map(column => column.name);
-  if (!settingsColumns.includes('active_model_id')) db.exec('ALTER TABLE harness_settings ADD COLUMN active_model_id TEXT');
-  if (!settingsColumns.includes('tools_enabled')) db.exec('ALTER TABLE harness_settings ADD COLUMN tools_enabled INTEGER NOT NULL DEFAULT 1');
-  if (!settingsColumns.includes('inference_engine')) db.exec("ALTER TABLE harness_settings ADD COLUMN inference_engine TEXT NOT NULL DEFAULT 'auto'");
-  const saved = db.prepare('SELECT provider,model,base_url,temperature,max_tokens,active_model_id,tools_enabled,inference_engine FROM harness_settings WHERE id=1').get();
+function initializeRuntimeSettings() {
+  const saved = initializeDatabase(db);
   resumeModelId = saved?.active_model_id || null;
   if (saved) {
     runtimeSettings = normalizeSettings({
@@ -432,9 +428,9 @@ function initializeDatabase() {
   }
 }
 
-initializeDatabase();
+initializeRuntimeSettings();
 inference.ensureLibrary().catch(() => {});
-const server = app.listen(port, '0.0.0.0', () => console.log(`AngChat Harness running at http://localhost:${port}`));
+const server = app.listen(port, process.env.HOST || '127.0.0.1', () => console.log(`Chat Engineering Harness running at http://localhost:${port}`));
 if (resumeModelId && models.runtimeStatus().available) {
   setImmediate(async () => {
     runtimeSettings.baseUrl = 'http://127.0.0.1:8080/v1';

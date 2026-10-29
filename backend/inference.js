@@ -102,7 +102,7 @@ function toChatHistory(messages) {
 }
 
 async function complete({ messages, temperature, maxTokens, onToken, signal }) {
-  if (!isReady()) throw new Error('No GGUF model is loaded in the AngChat process. Activate a GGUF from the model library.');
+  if (!isReady()) throw new Error('No GGUF model is loaded in the Chat process. Activate a GGUF from the model library.');
   const lib = await ensureLibrary();
   return enqueue(async () => {
     const { LlamaChatSession } = lib;
@@ -167,4 +167,3 @@ module.exports = {
   countTokens,
   getEmbedding
 };
-

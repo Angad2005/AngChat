@@ -16,6 +16,10 @@ backend/.env
 # Local runtime data
 backend/*.db
 backend/*.db-*
+.chat/brain/MEMORY.md
+.chat/brain/USER.md
+.chat/workspace.local.json
+.chat/traces/*.jsonl
 
 # Logs and OS/editor files
 *.log

@@ -1,14 +1,18 @@
 {
-  "name": "angchat-harness",
+  "name": "chat-engineering-harness",
   "version": "1.0.0",
-  "private": true,
-  "description": "A portable self-hosted AI harness with App Model and Claude Code modes.",
+  "description": "A local-first engineering harness for hosted and local AI models.",
+  "license": "MIT",
+  "bin": {
+    "chat": "bin/chat.js"
+  },
   "workspaces": ["backend"],
   "scripts": {
     "install:backend": "npm install --prefix backend",
     "start": "npm --prefix backend start",
     "dev": "npm --prefix backend run dev",
-    "test": "npm --prefix backend test"
+    "test": "npm --prefix backend test",
+    "chat": "node bin/chat.js"
   },
   "engines": { "node": ">=18" }
 }

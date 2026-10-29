@@ -108,12 +108,12 @@ function compressMiddleContext(messages, { targetTokens = 2048 } = {}) {
   ];
 }
 
-function buildSystemPrompt({ mode = 'app', toolsEnabled = true, memoryContext = '', skillContext = '', customSystemPrompt = '' } = {}) {
+function buildSystemPrompt({ mode = 'app', toolsEnabled = true, memoryContext = '', skillContext = '', projectInstructions = '', customSystemPrompt = '' } = {}) {
   const parts = [];
 
   const base = mode === 'code'
-    ? 'You are an expert autonomous software engineer and AI agent inside the AngChat harness. You execute commands, inspect repositories, test hypotheses, and verify every step.'
-    : 'You are an advanced AI copilot and autonomous product partner inside the AngChat harness.';
+    ? 'You are an expert autonomous software engineer and AI agent inside the Chat harness. You execute commands, inspect repositories, test hypotheses, and verify every step.'
+    : 'You are an advanced AI copilot and autonomous product partner inside the Chat harness.';
 
   parts.push(base);
 
@@ -127,6 +127,10 @@ function buildSystemPrompt({ mode = 'app', toolsEnabled = true, memoryContext = 
 
   if (skillContext && skillContext.trim()) {
     parts.push(skillContext.trim());
+  }
+
+  if (mode === 'code' && projectInstructions && projectInstructions.trim()) {
+    parts.push(`### Project Instructions:\n${projectInstructions.trim()}`);
   }
 
   const { toolPrompt } = require('./tools');

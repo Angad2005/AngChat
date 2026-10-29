@@ -17,7 +17,7 @@ const DEFAULTS = {
   auxiliaryProviders: {}
 };
 
-const PROVIDERS = ['openai', 'local', 'ollama', 'anthropic', 'gemini', 'mock'];
+const PROVIDERS = ['openai', 'nebius', 'local', 'ollama', 'anthropic', 'gemini', 'mock'];
 const AUXILIARY_TASKS = ['compression', 'vision', 'skills_hub', 'memory'];
 
 function publicSettings(settings) {
@@ -69,8 +69,8 @@ function normalizeSettings(input = {}, current = DEFAULTS) {
 
 function systemPrompt(mode, toolsEnabled) {
   const base = mode === 'code'
-    ? 'You are a coding assistant inside the AngChat harness. Prefer precise, repository-aware answers when workspace context is present. Do not claim to inspect files, run commands, or edit code unless a tool actually did so.'
-    : 'You are an AI product copilot inside the AngChat harness. Give concise, structured, actionable answers and state assumptions.';
+    ? 'You are a coding assistant inside the Chat harness. Prefer precise, repository-aware answers when workspace context is present. Do not claim to inspect files, run commands, or edit code unless a tool actually did so.'
+    : 'You are an AI product copilot inside the Chat harness. Give concise, structured, actionable answers and state assumptions.';
   return toolsEnabled ? `${base}\n\n${toolPrompt(mode)}` : base;
 }
 
@@ -461,10 +461,14 @@ async function completeTurn({ mode, messages, settings, toolsEnabled, onToken, s
     return { ...result, engine: 'ollama' };
   }
 
-  if (settings.provider === 'openai' || settings.provider === 'local') {
-    const base = settings.baseUrl || (settings.provider === 'local' ? 'http://127.0.0.1:8080/v1' : 'https://api.openai.com/v1');
+  if (settings.provider === 'openai' || settings.provider === 'nebius' || settings.provider === 'local') {
+    const base = settings.baseUrl || (
+      settings.provider === 'local' ? 'http://127.0.0.1:8080/v1' :
+        settings.provider === 'nebius' ? 'https://api.tokenfactory.nebius.com/v1' :
+          'https://api.openai.com/v1'
+    );
     const headers = { 'Content-Type': 'application/json' };
-    if (settings.provider === 'openai' && settings.apiKey) headers.Authorization = `Bearer ${settings.apiKey}`;
+    if ((settings.provider === 'openai' || settings.provider === 'nebius') && settings.apiKey) headers.Authorization = `Bearer ${settings.apiKey}`;
     const result = await completeOpenAi({
       base,
       headers,
@@ -476,7 +480,7 @@ async function completeTurn({ mode, messages, settings, toolsEnabled, onToken, s
       onToken,
       signal
     });
-    return { ...result, engine: settings.provider === 'local' ? 'llama-server' : 'openai' };
+    return { ...result, engine: settings.provider === 'local' ? 'llama-server' : settings.provider };
   }
 
   if (settings.provider === 'anthropic') {
@@ -589,4 +593,3 @@ module.exports = {
   isRetryableError,
   systemPrompt 
 };
-
