@@ -7,11 +7,16 @@ const {
   executeTool, getWorkspaceDir, parseToolCalls, resolveWorkspacePath, setWorkspaceDir,
   readProjectInstructions, stripToolMarkup, toolsForMode
 } = require('./tools');
-const { completeTurn, normalizeSettings, publicSettings } = require('./providers');
+const {
+  completeTurn, completeTurnWithFallback, normalizeSettings, publicSettings,
+  configuredApiKey, environmentSettings, restoreSettings, DEFAULTS
+} = require('./providers');
 const verification = require('./verification');
 const traces = require('./traces');
 const { createBasicAuthMiddleware } = require('./deployment-auth');
 const { browseDirectories } = require('./workspace-browser');
+const { initializeDatabase } = require('./initialize-database');
+const { runHarness, MAX_ROUNDS } = require('./harness');
 
 function testDeploymentBasicAuth() {
   assert.throws(() => createBasicAuthMiddleware({ username: 'demo' }), /requires both/);
@@ -69,6 +74,29 @@ function testWorkspaceDirectoryBrowser() {
   }
 }
 
+function testSessionPinMigration() {
+  const db = new (require('better-sqlite3'))(':memory:');
+  try {
+    db.exec(`CREATE TABLE sessions (
+      id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, title TEXT NOT NULL DEFAULT 'New session',
+      mode TEXT NOT NULL DEFAULT 'app', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );`);
+    initializeDatabase(db);
+    const pinnedColumn = db.prepare('PRAGMA table_info(sessions)').all().find(column => column.name === 'pinned');
+    assert.ok(pinnedColumn);
+    db.prepare('INSERT INTO sessions (id,owner_id,title,pinned) VALUES (?,?,?,?)').run('older', 'owner', 'Older', 0);
+    db.prepare('INSERT INTO sessions (id,owner_id,title,pinned) VALUES (?,?,?,?)').run('pinned', 'owner', 'Pinned', 1);
+    assert.deepEqual(
+      db.prepare('SELECT id FROM sessions WHERE owner_id = ? ORDER BY pinned DESC, updated_at DESC').all('owner').map(row => row.id),
+      ['pinned', 'older']
+    );
+    assert.equal(db.prepare('SELECT pinned FROM sessions WHERE id = ?').get('older').pinned, 0);
+  } finally {
+    db.close();
+  }
+}
+
 const xml = 'Checking the file.\n<tool_call>{"name":"read_file","arguments":{"path":"Readme.md"}}</tool_call>';
 const calls = parseToolCalls(xml);
 assert.equal(calls.length, 1);
@@ -104,6 +132,67 @@ assert.equal(publicSettings({ ...nebiusSettings, apiKey: 'secret' }).apiKey, und
 const nineRouterSettings = normalizeSettings({ provider: '9router', model: 'kr/claude-sonnet-4.5' });
 assert.equal(nineRouterSettings.provider, '9router');
 assert.equal(nineRouterSettings.model, 'kr/claude-sonnet-4.5');
+
+function testEnvironmentProviderSettings() {
+  const env = {
+    LLM_PROVIDER: 'Nvidia-nim',
+    LLM_MODEL: 'nvidia/nemotron-test',
+    LLM_BASE_URL: 'https://integrate.api.nvidia.com/v1',
+    LLM_API_KEY: 'generic-nvidia-key',
+    NVIDIA_NIM_API_KEY: 'provider-specific-nvidia-key',
+    OPENAI_API_KEY: 'openai-key'
+  };
+  assert.deepEqual(environmentSettings(env), {
+    provider: 'nvidia',
+    model: 'nvidia/nemotron-test',
+    baseUrl: 'https://integrate.api.nvidia.com/v1',
+    apiKey: 'provider-specific-nvidia-key'
+  });
+  assert.equal(configuredApiKey('openai', env), 'openai-key');
+  assert.equal(configuredApiKey('nebius', { LLM_PROVIDER: 'nvidia', LLM_API_KEY: 'nvidia-key' }), '');
+  assert.deepEqual(environmentSettings({
+    LLM_PROVIDER: 'mock',
+    NVIDIA_NIM_API_KEY: 'nvidia-key',
+    LLM_MODEL: 'nvidia/nemotron-test'
+  }), {
+    provider: 'nvidia',
+    model: 'nvidia/nemotron-test',
+    baseUrl: 'https://integrate.api.nvidia.com/v1',
+    apiKey: 'nvidia-key'
+  });
+  assert.equal(environmentSettings({ LLM_PROVIDER: 'mock' }).provider, 'mock');
+  assert.equal(environmentSettings({
+    LLM_PROVIDER: 'mock',
+    NVIDIA_NIM_API_KEY: 'nvidia-key',
+    OPENAI_API_KEY: 'openai-key'
+  }).provider, 'mock');
+  const nvidiaDefaults = {
+    ...DEFAULTS,
+    provider: 'nvidia',
+    model: 'nvidia/nemotron-test',
+    baseUrl: 'https://integrate.api.nvidia.com/v1',
+    apiKey: 'nvidia-key'
+  };
+  assert.equal(restoreSettings({
+    provider: 'mock',
+    model: 'angchat-demo',
+    base_url: '',
+    temperature: 0.4,
+    max_tokens: 800,
+    tools_enabled: 1,
+    inference_engine: 'auto'
+  }, nvidiaDefaults).provider, 'nvidia');
+  assert.equal(restoreSettings({
+    provider: 'openai',
+    model: 'gpt-test',
+    base_url: 'https://api.openai.com/v1',
+    temperature: 0.4,
+    max_tokens: 800,
+    tools_enabled: 1,
+    inference_engine: 'auto'
+  }, nvidiaDefaults).provider, 'openai');
+  assert.throws(() => environmentSettings({ LLM_PROVIDER: 'not-a-provider' }), /Unsupported LLM_PROVIDER/);
+}
 
 // Test context compression & estimation
 const context = require('./context');
@@ -208,6 +297,53 @@ async function test9RouterProvider() {
     assert.equal(JSON.parse(request.options.body).model, 'kr/claude-sonnet-4.5');
   } finally {
     global.fetch = originalFetch;
+  }
+}
+
+async function testLocalProviderEnvironmentFallback() {
+  const originalFetch = global.fetch;
+  const envKeys = ['LLM_PROVIDER', 'LLM_MODEL', 'LLM_BASE_URL', 'LLM_API_KEY', 'NVIDIA_NIM_API_KEY'];
+  const originalEnv = Object.fromEntries(envKeys.map(name => [name, process.env[name]]));
+  process.env.LLM_PROVIDER = 'Nvidia-nim';
+  process.env.LLM_MODEL = 'nvidia/nemotron-fallback';
+  process.env.LLM_BASE_URL = 'https://integrate.api.nvidia.com/v1';
+  process.env.LLM_API_KEY = 'fallback-test-key';
+  delete process.env.NVIDIA_NIM_API_KEY;
+  const requests = [];
+  global.fetch = async (url, options) => {
+    requests.push({ url: String(url), options });
+    if (requests.length === 1) throw new Error('ECONNREFUSED');
+    return {
+      ok: true,
+      text: async () => JSON.stringify({ choices: [{ message: { content: 'remote fallback response' } }] })
+    };
+  };
+  try {
+    const settings = normalizeSettings(
+      { provider: 'local', model: 'unavailable-local-model', baseUrl: 'http://127.0.0.1:8080/v1' },
+      { ...DEFAULTS, provider: 'nvidia', apiKey: 'nvidia-env-key' }
+    );
+    settings.retryAttempts = 1;
+    const result = await completeTurnWithFallback({
+      mode: 'app',
+      messages: [{ role: 'user', content: 'ping' }],
+      settings,
+      toolsEnabled: false
+    });
+    assert.equal(result.text, 'remote fallback response');
+    assert.equal(result.provider, 'nvidia');
+    assert.equal(result.model, 'nvidia/nemotron-fallback');
+    assert.equal(result.fallbackUsed, true);
+    assert.equal(requests[0].url, 'http://127.0.0.1:8080/v1/chat/completions');
+    assert.equal(requests[1].url, 'https://integrate.api.nvidia.com/v1/chat/completions');
+    assert.equal(requests[1].options.headers.Authorization, 'Bearer fallback-test-key');
+    assert.equal(publicSettings(settings).apiKey, undefined);
+  } finally {
+    global.fetch = originalFetch;
+    for (const [name, value] of Object.entries(originalEnv)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
   }
 }
 
@@ -354,6 +490,78 @@ async function testVerification() {
   }
 }
 
+async function testHarnessRequestLifecycle() {
+  const db = new Database(':memory:');
+  const originalFetch = global.fetch;
+  initializeDatabase(db);
+
+  function makeRequestAndResponse() {
+    const EventEmitter = require('events');
+    const req = new EventEmitter();
+    req.headers = {};
+    const res = new EventEmitter();
+    res.writableEnded = false;
+    res.status = function (code) { this.statusCode = code; return this; };
+    res.json = function (payload) { this.payload = payload; this.writableEnded = true; return this; };
+    return { req, res };
+  }
+
+  const settings = {
+    provider: 'openai',
+    model: 'test-model',
+    baseUrl: 'https://provider.test/v1',
+    apiKey: 'test-key',
+    temperature: 0,
+    maxTokens: 128,
+    toolsEnabled: false
+  };
+  try {
+    const { req, res } = makeRequestAndResponse();
+    let generationSignal;
+    global.fetch = async (_url, { signal }) => {
+      generationSignal = signal;
+      await new Promise(resolve => setTimeout(resolve, 10));
+      if (signal.aborted) throw new DOMException('This operation was aborted', 'AbortError');
+      return {
+        ok: true,
+        text: async () => JSON.stringify({ choices: [{ message: { content: 'Generation completed.' } }] })
+      };
+    };
+    const generation = runHarness({
+      req, res, db, ownerId: 'test-user', settings,
+      body: { prompt: 'Run a request', mode: 'app', toolsEnabled: false }
+    });
+    req.emit('close');
+    await generation;
+    assert.equal(generationSignal.aborted, false, 'a completed request body must not abort model generation');
+    assert.equal(res.payload.status, 'ok');
+    assert.equal(res.payload.text, 'Generation completed.');
+
+    const disconnected = makeRequestAndResponse();
+    let disconnectSignal;
+    global.fetch = (_url, { signal }) => new Promise((_resolve, reject) => {
+      disconnectSignal = signal;
+      signal.addEventListener('abort', () => reject(new DOMException('This operation was aborted', 'AbortError')), { once: true });
+    });
+    const disconnectedGeneration = runHarness({
+      req: disconnected.req, res: disconnected.res, db, ownerId: 'test-user', settings,
+      body: { prompt: 'Cancel this request', mode: 'app', toolsEnabled: false }
+    });
+    while (!disconnectSignal) await new Promise(resolve => setImmediate(resolve));
+    disconnected.res.emit('close');
+    await disconnectedGeneration;
+    assert.equal(disconnectSignal.aborted, true, 'closing the response must cancel model generation');
+    assert.equal(disconnected.res.statusCode, 502);
+  } finally {
+    global.fetch = originalFetch;
+    db.close();
+  }
+}
+
+function testHarnessRoundLimit() {
+  assert.equal(MAX_ROUNDS, 24);
+}
+
 function testInteractiveCli() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-cli-test-'));
   const dbPath = path.join(root, 'chat.sqlite');
@@ -486,16 +694,21 @@ function testTraceCapture() {
 Promise.resolve()
   .then(testDeploymentBasicAuth)
   .then(testWorkspaceDirectoryBrowser)
+  .then(testSessionPinMigration)
+  .then(testEnvironmentProviderSettings)
   .then(testNebiusProvider)
   .then(test9RouterProvider)
+  .then(testLocalProviderEnvironmentFallback)
   .then(testLocalProviderApiKey)
   .then(testCloudflareAccessVerification)
   .then(testVerification)
+  .then(testHarnessRequestLifecycle)
+  .then(testHarnessRoundLimit)
   .then(testInteractiveCli)
   .then(testProjectCodeTools)
   .then(testTraceCapture)
   .then(() => {
-  console.log('Chat harness tests passed.');
+  console.log('AngChat tests passed.');
   })
   .catch(error => {
     console.error(error);

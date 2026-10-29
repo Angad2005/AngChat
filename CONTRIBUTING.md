@@ -1,4 +1,4 @@
-# Contributing to Chat Engineering Harness
+# Contributing to AngChat
 
 ## Development
 

@@ -1,6 +1,6 @@
 {
   "generatedAt": "2026-10-29T14:38:29.648Z",
-  "task": "Manual PatchProof verification",
+  "task": "Manual AngChat verification",
   "scripts": [
     "test"
   ],
@@ -17,7 +17,7 @@
       "exitCode": 0,
       "durationMs": 540,
       "timedOut": false,
-      "output": "> chat-engineering-harness@1.0.0 test\n> npm --prefix backend test\n\n\n> chat-engineering-harness-backend@1.0.0 test\n> node --check index.js initialize-database.js providers.js models.js tools.js inference.js harness.js memory.js skills.js context.js verification.js traces.js && node test.js\n\nChat harness tests passed."
+      "output": "> angchat@1.0.0 test\n> npm --prefix backend test\n\n\n> angchat-backend@1.0.0 test\n> node --check index.js initialize-database.js providers.js models.js tools.js inference.js harness.js memory.js skills.js context.js verification.js traces.js && node test.js\n\nAngChat tests passed."
     }
   ]
 }

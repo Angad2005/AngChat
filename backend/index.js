@@ -4,9 +4,9 @@ const fs = require('fs');
 const session = require('express-session');
 const { promisify } = require('util');
 const { randomUUID, randomBytes, scrypt: scryptCallback, timingSafeEqual } = require('crypto');
-const { db } = require('./db');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
-const { DEFAULTS, normalizeSettings, publicSettings, callProvider } = require('./providers');
+const { db } = require('./db');
+const { DEFAULTS, normalizeSettings, publicSettings, restoreSettings, callProvider } = require('./providers');
 const models = require('./models');
 const inference = require('./inference');
 const memory = require('./memory');
@@ -138,13 +138,13 @@ app.get('/auth', (_req, res) => res.sendFile(path.join(publicDir, 'Login.html'))
 app.get('/admin', isAuthenticated, isAdmin, (_req, res) => res.sendFile(path.join(publicDir, 'Admin.html')));
 
 app.get('/api/health', (_req, res) => {
-  try { db.prepare('SELECT 1 AS ok').get(); res.json({ ok: true, database: 'ok', name: 'PatchProof' }); }
+  try { db.prepare('SELECT 1 AS ok').get(); res.json({ ok: true, database: 'ok', name: 'AngChat' }); }
   catch (error) { sendError(res, error, 503); }
 });
 app.get('/api/harness/config', (_req, res) => res.json({
-  name: 'PatchProof',
+  name: 'AngChat',
   modes: { app: 'App', code: 'Code' },
-  providers: ['openai', 'nebius', '9router', 'local', 'ollama', 'anthropic', 'gemini', 'mock'],
+  providers: ['openai', 'nebius', '9router', 'nvidia', 'local', 'ollama', 'anthropic', 'gemini', 'mock'],
   recommendedModel: { provider: 'nebius', model: 'nvidia/Nemotron-3_5-Lightning', baseUrl: 'https://api.tokenfactory.nebius.com/v1' },
   capabilities: ['persistent-sessions', 'model-library', 'in-process-gguf-inference', 'openai-compatible-local-runtime', 'prompt-attachments', 'streaming', 'workspace-tools', 'agent-loop', 'project-path', 'glob', 'grep', 'file-edit', 'git-inspection', 'verified-execution']
 }));
@@ -213,7 +213,8 @@ app.post('/api/provider/test', async (_req, res) => {
 });
 
 app.get('/api/sessions', (req, res) => {
-  const sessions = db.prepare('SELECT id,title,mode,created_at AS createdAt,updated_at AS updatedAt FROM sessions WHERE owner_id = ? ORDER BY updated_at DESC').all(ownerId(req));
+  const sessions = db.prepare('SELECT id,title,mode,pinned,created_at AS createdAt,updated_at AS updatedAt FROM sessions WHERE owner_id = ? ORDER BY pinned DESC, updated_at DESC').all(ownerId(req))
+    .map(item => ({ ...item, pinned: Boolean(item.pinned) }));
   res.json(sessions);
 });
 app.post('/api/sessions', (req, res) => {
@@ -231,11 +232,24 @@ app.get('/api/sessions/:id/messages', (req, res) => {
   res.json(messages);
 });
 app.patch('/api/sessions/:id', (req, res) => {
-  const title = typeof req.body?.title === 'string' ? req.body.title.trim().slice(0, 80) : '';
-  if (!title) return res.status(400).json({ error: 'Session title is required.' });
-  const changed = db.prepare('UPDATE sessions SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND owner_id = ?').run(title, req.params.id, ownerId(req));
+  const updates = [];
+  const values = [];
+  if (Object.hasOwn(req.body || {}, 'title')) {
+    const title = typeof req.body.title === 'string' ? req.body.title.trim().slice(0, 80) : '';
+    if (!title) return res.status(400).json({ error: 'Session title is required.' });
+    updates.push('title = ?');
+    values.push(title);
+  }
+  if (Object.hasOwn(req.body || {}, 'pinned')) {
+    if (typeof req.body.pinned !== 'boolean') return res.status(400).json({ error: 'Pinned must be true or false.' });
+    updates.push('pinned = ?');
+    values.push(req.body.pinned ? 1 : 0);
+  }
+  if (!updates.length) return res.status(400).json({ error: 'Provide a session title or pin state to update.' });
+  updates.push('updated_at = CURRENT_TIMESTAMP');
+  const changed = db.prepare(`UPDATE sessions SET ${updates.join(', ')} WHERE id = ? AND owner_id = ?`).run(...values, req.params.id, ownerId(req));
   if (!changed.changes) return res.status(404).json({ error: 'Session not found.' });
-  res.json({ ok: true });
+  res.json({ ok: true, ...(Object.hasOwn(req.body || {}, 'pinned') ? { pinned: req.body.pinned } : {}) });
 });
 app.delete('/api/sessions/:id', (req, res) => {
   const changed = db.prepare('DELETE FROM sessions WHERE id = ? AND owner_id = ?').run(req.params.id, ownerId(req));
@@ -483,21 +497,13 @@ function initializeRuntimeSettings() {
   const saved = initializeDatabase(db);
   resumeModelId = saved?.active_model_id || null;
   if (saved) {
-    runtimeSettings = normalizeSettings({
-      provider: saved.provider,
-      model: saved.model,
-      baseUrl: saved.base_url,
-      temperature: saved.temperature,
-      maxTokens: saved.max_tokens,
-      toolsEnabled: saved.tools_enabled !== 0,
-      inferenceEngine: saved.inference_engine || 'auto'
-    }, runtimeSettings);
+    runtimeSettings = restoreSettings(saved, runtimeSettings);
   }
 }
 
 initializeRuntimeSettings();
 inference.ensureLibrary().catch(() => {});
-const server = app.listen(port, process.env.HOST || '127.0.0.1', () => console.log(`PatchProof running at http://localhost:${port}`));
+const server = app.listen(port, process.env.HOST || '127.0.0.1', () => console.log(`AngChat running at http://localhost:${port}`));
 if (resumeModelId && models.runtimeStatus().available) {
   setImmediate(async () => {
     runtimeSettings.baseUrl = 'http://127.0.0.1:8080/v1';

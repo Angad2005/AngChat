@@ -1,7 +1,7 @@
 {
-  "name": "chat-engineering-harness",
+  "name": "angchat",
   "version": "1.0.0",
-  "description": "A local-first engineering harness for hosted and local AI models.",
+  "description": "AngChat, a local-first coding agent for hosted and local AI models.",
   "license": "MIT",
   "bin": {
     "chat": "bin/chat.js"

@@ -1,7 +1,7 @@
 {
-  "name": "chat-engineering-harness-backend",
+  "name": "angchat-backend",
   "version": "1.0.0",
-  "description": "Portable Node backend for the Chat Engineering Harness",
+  "description": "Portable Node backend for AngChat",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",

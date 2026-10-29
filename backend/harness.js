@@ -6,7 +6,7 @@ const skills = require('./skills');
 const context = require('./context');
 const traces = require('./traces');
 
-const MAX_ROUNDS = 12;
+const MAX_ROUNDS = 24;
 const HISTORY_LIMIT = 30;
 
 function writeSse(res, event, data) {
@@ -72,7 +72,11 @@ async function runHarness({ req, res, db, ownerId, settings, body }) {
 
   const abort = new AbortController();
   const stop = () => abort.abort();
-  req.on('close', stop);
+  const stopIfDisconnected = () => {
+    if (!res.writableEnded) stop();
+  };
+  req.on('aborted', stop);
+  res.on?.('close', stopIfDisconnected);
   const emit = (event, data) => {
     if (stream && !res.writableEnded) writeSse(res, event, data);
   };
@@ -107,7 +111,10 @@ async function runHarness({ req, res, db, ownerId, settings, body }) {
   messages = messages.filter(m => m.role !== 'system');
   messages.unshift({ role: 'system', content: assembledSystem });
 
-  const maxRounds = Number(body?.maxRounds) || MAX_ROUNDS;
+  const requestedRounds = Number(body?.maxRounds);
+  const maxRounds = Number.isFinite(requestedRounds) && requestedRounds > 0
+    ? Math.min(MAX_ROUNDS, Math.floor(requestedRounds))
+    : MAX_ROUNDS;
 
   try {
     for (let round = 0; round < maxRounds; round++) {
@@ -257,8 +264,9 @@ async function runHarness({ req, res, db, ownerId, settings, body }) {
       res.status(502).json({ sessionId, status: 'error', error: error.message, provider: settings.provider });
     }
   } finally {
-    req.off('close', stop);
+    req.off('aborted', stop);
+    res.off?.('close', stopIfDisconnected);
   }
 }
 
-module.exports = { runHarness, loadHistory };
+module.exports = { runHarness, loadHistory, MAX_ROUNDS };

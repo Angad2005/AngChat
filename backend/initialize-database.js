@@ -11,7 +11,7 @@ function initializeDatabase(db) {
   }
   db.exec(`CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, title TEXT NOT NULL DEFAULT 'New session',
-    mode TEXT NOT NULL DEFAULT 'app', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    mode TEXT NOT NULL DEFAULT 'app', pinned INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
   CREATE TABLE IF NOT EXISTS messages (
@@ -30,6 +30,8 @@ function initializeDatabase(db) {
   skills.initSkills(db);
   const messageColumns = db.prepare('PRAGMA table_info(messages)').all().map(column => column.name);
   if (!messageColumns.includes('meta')) db.exec('ALTER TABLE messages ADD COLUMN meta TEXT');
+  const sessionColumns = db.prepare('PRAGMA table_info(sessions)').all().map(column => column.name);
+  if (!sessionColumns.includes('pinned')) db.exec('ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0');
   const settingsColumns = db.prepare('PRAGMA table_info(harness_settings)').all().map(column => column.name);
   if (!settingsColumns.includes('active_model_id')) db.exec('ALTER TABLE harness_settings ADD COLUMN active_model_id TEXT');
   if (!settingsColumns.includes('tools_enabled')) db.exec('ALTER TABLE harness_settings ADD COLUMN tools_enabled INTEGER NOT NULL DEFAULT 1');

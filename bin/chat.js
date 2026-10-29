@@ -8,7 +8,7 @@ const { EventEmitter } = require('events');
 const root = path.resolve(__dirname, '..');
 
 function usage() {
-  console.log(`Chat Engineering Harness
+  console.log(`AngChat
 
 Usage:
   chat [run] [--mode app|code]     Start an interactive chat

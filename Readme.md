@@ -1,30 +1,30 @@
-# PatchProof
+# AngChat
 
-**Repo → patch → proof.** PatchProof is a repository-aware coding agent for the **Coding and Agentic Engineering** track. It uses NVIDIA Nemotron through Nebius Token Factory to inspect a selected codebase, make focused edits, and run the project’s configured checks. Each verification run writes a JSON receipt with the task, scripts, outcomes, durations, and output; agent-triggered receipts also record the provider and model used for that run. Judges can inspect concrete evidence instead of relying on an agent’s claim that a change works.
+**Repo → patch → proof.** AngChat is a repository-aware coding agent for the **Coding and Agentic Engineering** track. It uses NVIDIA Nemotron through Nebius Token Factory to inspect a selected codebase, make focused edits, and run the project’s configured checks. Each verification run writes a JSON receipt with the task, scripts, outcomes, durations, and output; agent-triggered receipts also record the provider and model used for that run. Judges can inspect concrete evidence instead of relying on an agent’s claim that a change works.
 
-The repo remains in the selected workspace. File contents returned to the agent are sent to the configured model provider; verification scripts run locally. PatchProof supports streaming, persistent sessions, Git status and diff inspection, workspace-bounded file tools, and local verification receipts. The project is MIT-licensed and uses the existing cross-platform Node.js stack. It also retains optional local GGUF inference, searchable memory, skills, and opt-in execution traces.
+The repo remains in the selected workspace. File contents returned to the agent are sent to the configured model provider; verification scripts run locally. AngChat supports streaming, persistent sessions, Git status and diff inspection, workspace-bounded file tools, and local verification receipts. The project is MIT-licensed and uses the existing cross-platform Node.js stack. It also retains optional local GGUF inference, searchable memory, skills, and opt-in execution traces.
 
 ## Hackathon build
 
 **Track:** Coding and Agentic Engineering.
 
-**Problem:** coding agents can produce plausible patches without showing whether the repository’s own checks pass. PatchProof makes verification a first-class step in the agent loop and saves the result as a reviewable artifact.
+**Problem:** coding agents can produce plausible patches without showing whether the repository’s own checks pass. AngChat makes verification a first-class step in the agent loop and saves the result as a reviewable artifact.
 
 **Who it helps:** developers and small teams reviewing AI-assisted changes. They need the patch, the repository’s own check output, and a clear record of which model and task produced that evidence.
 
-**How the demo works:** select a repository and ask PatchProof to fix a failing behavior. It inspects the source, tests, and Git changes; records the failing baseline; makes a focused patch; runs the repository’s configured checks; and, when needed, iterates on related failures. The app shows each verification result as it happens. `verify_project` only selects the named `test`, `lint`, `typecheck`, and `build` scripts, then records actual output, exit status, duration, task, and provider/model in `.chat/receipts/`. Review the final Git diff beside that evidence.
+**How the demo works:** select a repository and ask AngChat to fix a failing behavior. It inspects the source, tests, and Git changes; records the failing baseline; makes a focused patch; runs the repository’s configured checks; and, when needed, iterates on related failures. The app shows each verification result as it happens. `verify_project` only selects the named `test`, `lint`, `typecheck`, and `build` scripts, then records actual output, exit status, duration, task, and provider/model in `.chat/receipts/`. Review the final Git diff beside that evidence.
 
 **Hackathon model:** NVIDIA Nemotron 3.5 Lightning through Nebius Token Factory. The current model ID and Token Factory endpoint are prefilled by **Settings → Fill Nebius + Nemotron**. The model is served through Nebius’s OpenAI-compatible API; see the [Nebius Nemotron model page](https://nebius.com/services/token-factory/models/nvidia-nemotron-models-inference).
 
-**Submission description draft:** *PatchProof is a coding agent that turns repository tasks into inspectable, tested patches. NVIDIA Nemotron on Nebius Token Factory plans and edits code through workspace-bounded tools. After a change, PatchProof runs the repository’s configured checks locally and saves a JSON verification receipt with the scripts, results, timings, and output. This gives developers a concrete signal to review alongside the final Git diff.*
+**Submission description draft:** *AngChat is a coding agent that turns repository tasks into inspectable, tested patches. NVIDIA Nemotron on Nebius Token Factory plans and edits code through workspace-bounded tools. After a change, AngChat runs the repository’s configured checks locally and saves a JSON verification receipt with the scripts, results, timings, and output. This gives developers a concrete signal to review alongside the final Git diff.*
 
 **Three-minute demo outline:** show the selected repository and Nebius/Nemotron model; submit one small coding task; show the model’s file inspection and edits; run `verify_project`; open the receipt and compare it with the Git diff. Keep the demo on a real repository with a repeatable task and visible checks.
 
-Three ready-to-use demo repositories, copy-ready prompts, and a timed video workflow are in [`demo-repos/README.md`](demo-repos/README.md). Each repo starts from a clean Git commit with an intentional failing check, so PatchProof can produce a focused diff and verification receipt.
+Three ready-to-use demo repositories, copy-ready prompts, and a timed video workflow are in [`demo-repos/README.md`](demo-repos/README.md). Each repo starts from a clean Git commit with an intentional failing check, so AngChat can produce a focused diff and verification receipt.
 
 The [hackathon video script and submission checklist](HACKATHON-DEMO-SCRIPT.md) include the narration, screen actions, project description, and a factual summary of the work completed during the submission period.
 
-**Submission items to complete:** publish the repository with this MIT license and setup guide, host a working demo URL, and upload a public YouTube demo of three minutes or less. Include the required track and project description in the submission form. Add honest feedback on Nebius Token Factory and NVIDIA Nemotron after trying the build. If this project predates the submission period, describe which PatchProof workflow, verification feature, and Nebius/Nemotron integration were added during that period.
+**Submission items to complete:** publish the repository with this MIT license and setup guide, host a working demo URL, and upload a public YouTube demo of three minutes or less. Include the required track and project description in the submission form. Add honest feedback on Nebius Token Factory and NVIDIA Nemotron after trying the build. If this project predates the submission period, describe which AngChat workflow, verification feature, and Nebius/Nemotron integration were added during that period.
 
 ## Deploy to Cloudflare
 
@@ -139,7 +139,7 @@ The Model library page reports whether in-process inference is loaded, whether `
 - Streaming: the UI reads server-sent events and can stop generation.
 - Agent tools: App mode can read, list, and search the workspace. Code mode can also write files and run a timed shell command in the project directory. Secrets such as `backend/.env` and the SQLite database are blocked.
 - Project selection: type an absolute server-side directory or use **Browse folders** under **Settings → Project files** to navigate and select it. The project root is saved with private permissions in the ignored `.chat/workspace.local.json` file and used as the current directory and filesystem boundary for tools. `CHAT_WORKSPACE` overrides the saved path at startup.
-- Claude Code-style tools in Code mode: `glob`, `grep`, `read_file`, `list_dir`, `edit_file`, `write_file`, `bash`, `git_status`, and `git_diff`. Existing `search_files`, `patch_file`, and `run_command` names remain available. Editing rejects ambiguous matches; Git inspection is read-only.
+- Claude Code-style tools in Code mode: `glob`, `grep`, `read_file`, `list_dir`, `edit_file`, `write_file`, `bash`, `git_status`, and `git_diff`. Each agent run can use up to 24 model/tool rounds (previously 12). Existing `search_files`, `patch_file`, and `run_command` names remain available. Editing rejects ambiguous matches; Git inspection is read-only.
 - Local safety: the server binds to `127.0.0.1` by default, and project-backed agent runs and project-path changes reject non-loopback requests. Code-mode shell commands run with the backend process user's OS permissions; use only with trusted prompts and projects. Set `HOST` only when intentionally changing the listener address.
 - Code mode also loads root `AGENTS.md`, `CLAUDE.md`, `.claude/CLAUDE.md`, and `.github/copilot-instructions.md` files as project instructions when present.
 - Attachments: text, Markdown, CSV, JSON, XML, YAML, TOML, and log files up to 100 KB.
@@ -148,7 +148,9 @@ The Model library page reports whether in-process inference is loaded, whether `
 
 ## Connect a provider
 
-Open **Settings**, choose a provider, set its model ID and any required endpoint or key, save, then use **Test connection**. Provider, endpoint, generation, tool, and inference-engine settings are saved in SQLite. API keys stay in backend process memory and are never returned by the settings endpoint. To retain a key across server restarts, configure `LLM_API_KEY` in `backend/.env`.
+Open **Settings**, choose a provider, set its model ID and any required endpoint or key, save, then use **Test connection**. Provider, endpoint, generation, tool, and inference-engine settings are saved in SQLite. API keys stay in backend process memory and are never returned by the settings endpoint. To load keys automatically at startup, put them in `backend/.env`: use `LLM_API_KEY` for the provider named by `LLM_PROVIDER`, or provider-specific names such as `OPENAI_API_KEY`, `NEBIUS_API_KEY`, `NINE_ROUTER_API_KEY`, `NVIDIA_NIM_API_KEY`, `ANTHROPIC_API_KEY`, and `GEMINI_API_KEY`. If the configured provider is `mock` and exactly one provider-specific API key is present, AngChat selects that provider automatically at startup. The configured environment provider also replaces a previously saved `mock` selection. Provider-specific keys are picked up when switching providers in Settings.
+
+If Settings has a local or Ollama provider selected and that endpoint is unavailable, AngChat automatically tries the hosted provider configured by `LLM_PROVIDER` in `backend/.env`, provided its API key is configured. A working local provider remains primary. NVIDIA NIM can be selected as **NVIDIA NIM** or configured with `LLM_PROVIDER=nvidia` (`Nvidia-nim` is accepted as an alias); the default endpoint is `https://integrate.api.nvidia.com/v1`.
 
 | Provider | Endpoint |
 | --- | --- |
@@ -157,6 +159,7 @@ Open **Settings**, choose a provider, set its model ID and any required endpoint
 | OpenAI-compatible API | Defaults to OpenAI's API; custom compatible endpoints are supported |
 | Nebius Token Factory | OpenAI-compatible API, default `https://api.tokenfactory.nebius.com/v1` |
 | 9Router | OpenAI-compatible API, default `http://localhost:20128/v1`; copy the API key and a model ID from the 9Router dashboard |
+| NVIDIA NIM | OpenAI-compatible API, default `https://integrate.api.nvidia.com/v1` |
 | Anthropic | Anthropic Messages API |
 | Google Gemini | Gemini generateContent API |
 | Mock | Returns an explicit message that no model was called |

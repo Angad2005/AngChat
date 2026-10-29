@@ -1,11 +1,61 @@
 const inference = require('./inference');
 const { openaiTools, anthropicTools, geminiTools, toolPrompt } = require('./tools');
 
+const PROVIDERS = ['openai', 'nebius', '9router', 'nvidia', 'local', 'ollama', 'anthropic', 'gemini', 'mock'];
+const PROVIDER_API_KEY_ENV = {
+  openai: ['OPENAI_API_KEY'],
+  nebius: ['NEBIUS_API_KEY'],
+  '9router': ['NINE_ROUTER_API_KEY', 'ROUTER9_API_KEY', '9ROUTER_API_KEY'],
+  nvidia: ['NVIDIA_NIM_API_KEY', 'NVIDIA_API_KEY'],
+  local: ['LOCAL_API_KEY', 'LM_STUDIO_API_KEY'],
+  anthropic: ['ANTHROPIC_API_KEY'],
+  gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY']
+};
+const AUXILIARY_TASKS = ['compression', 'vision', 'skills_hub', 'memory'];
+
+function normalizeProviderId(provider) {
+  if (typeof provider !== 'string') return null;
+  const normalized = provider.trim().toLowerCase().replace(/[\s_]+/g, '-');
+  const aliases = { 'nvidia-nim': 'nvidia', nim: 'nvidia', '9-router': '9router' };
+  const canonical = aliases[normalized] || normalized;
+  return PROVIDERS.includes(canonical) ? canonical : null;
+}
+
+function configuredApiKey(provider, env = process.env) {
+  const canonical = normalizeProviderId(provider);
+  if (!canonical) return '';
+  for (const name of PROVIDER_API_KEY_ENV[canonical] || []) {
+    if (env[name]?.trim()) return env[name].trim();
+  }
+  if (normalizeProviderId(env.LLM_PROVIDER || 'mock') === canonical) {
+    return env.LLM_API_KEY?.trim() || '';
+  }
+  return '';
+}
+
+function inferProviderFromApiKeys(env) {
+  const configured = Object.entries(PROVIDER_API_KEY_ENV)
+    .filter(([, names]) => names.some(name => env[name]?.trim()))
+    .map(([provider]) => provider);
+  return configured.length === 1 ? configured[0] : null;
+}
+
+function environmentSettings(env = process.env) {
+  const rawProvider = env.LLM_PROVIDER || 'mock';
+  let provider = normalizeProviderId(rawProvider);
+  if (!provider) throw new Error(`Unsupported LLM_PROVIDER "${rawProvider}". Choose one of: ${PROVIDERS.join(', ')}.`);
+  if (provider === 'mock') provider = inferProviderFromApiKeys(env) || provider;
+  return {
+    provider,
+    model: env.LLM_MODEL || (provider === 'nvidia' ? 'nvidia/nemotron-3-ultra-550b-a55b' : 'angchat-demo'),
+    baseUrl: env.LLM_BASE_URL || (provider === 'nvidia' ? 'https://integrate.api.nvidia.com/v1' : ''),
+    apiKey: configuredApiKey(provider, env)
+  };
+}
+
+const ENVIRONMENT_DEFAULTS = environmentSettings();
 const DEFAULTS = {
-  provider: process.env.LLM_PROVIDER || 'mock',
-  model: process.env.LLM_MODEL || 'angchat-demo',
-  baseUrl: process.env.LLM_BASE_URL || '',
-  apiKey: process.env.LLM_API_KEY || '',
+  ...ENVIRONMENT_DEFAULTS,
   temperature: Number(process.env.LLM_TEMPERATURE || 0.2),
   maxTokens: Number(process.env.LLM_MAX_TOKENS || 1200),
   toolsEnabled: true,
@@ -16,9 +66,6 @@ const DEFAULTS = {
   rateLimitBackoffMs: 5000,
   auxiliaryProviders: {}
 };
-
-const PROVIDERS = ['openai', 'nebius', '9router', 'local', 'ollama', 'anthropic', 'gemini', 'mock'];
-const AUXILIARY_TASKS = ['compression', 'vision', 'skills_hub', 'memory'];
 
 function publicSettings(settings) {
   return {
@@ -38,11 +85,16 @@ function publicSettings(settings) {
 
 function normalizeSettings(input = {}, current = DEFAULTS) {
   const next = { ...current };
-  if (typeof input.provider === 'string' && PROVIDERS.includes(input.provider)) next.provider = input.provider;
+  const requestedProvider = normalizeProviderId(input.provider);
+  if (requestedProvider) next.provider = requestedProvider;
+  if (next.provider !== current.provider) next.apiKey = configuredApiKey(next.provider);
   if (typeof input.model === 'string' && input.model.trim()) next.model = input.model.trim();
   if (typeof input.baseUrl === 'string') next.baseUrl = input.baseUrl.trim().replace(/\/$/, '');
   if (typeof input.apiKey === 'string' && input.apiKey.trim()) next.apiKey = input.apiKey.trim();
   if (input.clearApiKey === true) next.apiKey = '';
+  if (next.provider === current.provider && !next.apiKey && input.clearApiKey !== true) {
+    next.apiKey = configuredApiKey(next.provider);
+  }
   if (Number.isFinite(Number(input.temperature))) next.temperature = Math.min(2, Math.max(0, Number(input.temperature)));
   if (Number.isFinite(Number(input.maxTokens))) next.maxTokens = Math.min(32000, Math.max(128, Number(input.maxTokens)));
   if (typeof input.toolsEnabled === 'boolean') next.toolsEnabled = input.toolsEnabled;
@@ -67,10 +119,23 @@ function normalizeSettings(input = {}, current = DEFAULTS) {
   return next;
 }
 
+function restoreSettings(saved, current = DEFAULTS) {
+  const useEnvironmentProvider = saved.provider === 'mock' && current.provider !== 'mock';
+  return normalizeSettings({
+    provider: useEnvironmentProvider ? current.provider : saved.provider,
+    model: useEnvironmentProvider ? current.model : saved.model,
+    baseUrl: useEnvironmentProvider ? current.baseUrl : saved.base_url,
+    temperature: saved.temperature,
+    maxTokens: saved.max_tokens,
+    toolsEnabled: saved.tools_enabled !== 0,
+    inferenceEngine: saved.inference_engine || 'auto'
+  }, current);
+}
+
 function systemPrompt(mode, toolsEnabled) {
   const base = mode === 'code'
-    ? 'You are PatchProof, a repository-aware coding agent. Prefer precise, small patches, then verify changes with the project’s configured checks. Do not claim to inspect files, run commands, or edit code unless a tool actually did so.'
-    : 'You are an AI product copilot inside PatchProof. Give concise, structured, actionable answers and state assumptions.';
+    ? 'You are AngChat, a repository-aware coding agent. Prefer precise, small patches, then verify changes with the project’s configured checks. Continue relevant tool work while making progress and within the available tool-call limit. Do not claim to inspect files, run commands, or edit code unless a tool actually did so.'
+    : 'You are an AI product copilot inside AngChat. Give concise, structured, actionable answers and state assumptions.';
   return toolsEnabled ? `${base}\n\n${toolPrompt(mode)}` : base;
 }
 
@@ -461,12 +526,13 @@ async function completeTurn({ mode, messages, settings, toolsEnabled, onToken, s
     return { ...result, engine: 'ollama' };
   }
 
-  if (settings.provider === 'openai' || settings.provider === 'nebius' || settings.provider === '9router' || settings.provider === 'local') {
+  if (settings.provider === 'openai' || settings.provider === 'nebius' || settings.provider === '9router' || settings.provider === 'nvidia' || settings.provider === 'local') {
     const base = settings.baseUrl || (
       settings.provider === 'local' ? 'http://127.0.0.1:8080/v1' :
         settings.provider === 'nebius' ? 'https://api.tokenfactory.nebius.com/v1' :
           settings.provider === '9router' ? 'http://localhost:20128/v1' :
-          'https://api.openai.com/v1'
+          settings.provider === 'nvidia' ? 'https://integrate.api.nvidia.com/v1' :
+        'https://api.openai.com/v1'
     );
     const headers = { 'Content-Type': 'application/json' };
     if (settings.apiKey) {
@@ -544,9 +610,21 @@ function resolveAuxiliaryProvider(settings, taskName) {
 
 async function completeTurnWithFallback(params) {
   const { settings, signal, onToken } = params;
+  const automaticEnvironmentFallback = settings.provider === 'local' || settings.provider === 'ollama'
+    ? environmentSettings()
+    : null;
+  const explicitFallbackProviders = Array.isArray(settings.fallbackProviders) ? settings.fallbackProviders : [];
+  const fallbackProviders = [
+    ...explicitFallbackProviders,
+    ...(automaticEnvironmentFallback && !['local', 'ollama'].includes(automaticEnvironmentFallback.provider) &&
+      automaticEnvironmentFallback.provider !== 'mock' && automaticEnvironmentFallback.apiKey &&
+      !explicitFallbackProviders.some(provider => normalizeProviderId(provider.provider) === automaticEnvironmentFallback.provider)
+      ? [automaticEnvironmentFallback]
+      : [])
+  ];
   const attempts = [
     settings,
-    ...(Array.isArray(settings.fallbackProviders) ? settings.fallbackProviders.map(p => normalizeSettings(p, settings)) : [])
+    ...fallbackProviders.map(p => normalizeSettings(p, settings))
   ];
 
   let lastError = null;
@@ -589,6 +667,10 @@ module.exports = {
   DEFAULTS, 
   PROVIDERS, 
   AUXILIARY_TASKS,
+  normalizeProviderId,
+  configuredApiKey,
+  environmentSettings,
+  restoreSettings,
   normalizeSettings, 
   publicSettings, 
   callProvider, 
