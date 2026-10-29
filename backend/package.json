@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
-    "test": "node --check index.js initialize-database.js providers.js models.js tools.js inference.js harness.js memory.js skills.js context.js verification.js traces.js deployment-auth.js ../cloudflare/access.mjs && node --input-type=module --check < ../cloudflare/worker.js && node test.js"
+    "test": "node --check index.js initialize-database.js providers.js models.js tools.js inference.js harness.js memory.js skills.js context.js verification.js traces.js deployment-auth.js workspace-browser.js ../cloudflare/access.mjs && node --input-type=module --check < ../cloudflare/worker.js && node test.js"
   },
   "keywords": ["ai", "harness", "claude-code", "gemini"],
   "author": "",

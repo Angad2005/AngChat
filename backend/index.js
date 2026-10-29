@@ -16,6 +16,7 @@ const { toolsForMode, getWorkspaceDir, persistWorkspaceDir, setWorkspaceDir } = 
 const { initializeDatabase } = require('./initialize-database');
 const { listReceipts, verifyProject } = require('./verification');
 const { createBasicAuthMiddleware } = require('./deployment-auth');
+const { browseDirectories } = require('./workspace-browser');
 
 const scrypt = promisify(scryptCallback);
 const app = express();
@@ -143,7 +144,7 @@ app.get('/api/health', (_req, res) => {
 app.get('/api/harness/config', (_req, res) => res.json({
   name: 'PatchProof',
   modes: { app: 'App', code: 'Code' },
-  providers: ['openai', 'nebius', 'local', 'ollama', 'anthropic', 'gemini', 'mock'],
+  providers: ['openai', 'nebius', '9router', 'local', 'ollama', 'anthropic', 'gemini', 'mock'],
   recommendedModel: { provider: 'nebius', model: 'nvidia/Nemotron-3_5-Lightning', baseUrl: 'https://api.tokenfactory.nebius.com/v1' },
   capabilities: ['persistent-sessions', 'model-library', 'in-process-gguf-inference', 'openai-compatible-local-runtime', 'prompt-attachments', 'streaming', 'workspace-tools', 'agent-loop', 'project-path', 'glob', 'grep', 'file-edit', 'git-inspection', 'verified-execution']
 }));
@@ -168,6 +169,15 @@ app.post('/api/verification/run', requireLocalWorkspaceAccess, async (req, res) 
 });
 app.get('/api/workspace', requireLoopback, (_req, res) => {
   res.json({ path: getWorkspaceDir() });
+});
+app.get('/api/workspace/directories', requireLoopback, (req, res) => {
+  try {
+    const requestedPath = typeof req.query.path === 'string' ? req.query.path : getWorkspaceDir();
+    const options = process.env.ANGCHAT_CLOUD_DEPLOYMENT === 'render' ? { allowedRoot: '/data' } : undefined;
+    res.json(browseDirectories(requestedPath, options));
+  } catch (error) {
+    sendError(res, error);
+  }
 });
 app.put('/api/workspace', requireLoopback, (req, res) => {
   const previous = getWorkspaceDir();

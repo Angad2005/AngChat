@@ -10,7 +10,9 @@ The repo remains in the selected workspace. File contents returned to the agent 
 
 **Problem:** coding agents can produce plausible patches without showing whether the repository’s own checks pass. PatchProof makes verification a first-class step in the agent loop and saves the result as a reviewable artifact.
 
-**How the demo works:** select a repository, choose a task such as “fix a failing check,” and let the model inspect and edit files using workspace tools. The agent can call `verify_project`, which only accepts the named `test`, `lint`, `typecheck`, and `build` scripts, then records a receipt under `.chat/receipts/`. Review the final Git diff and the verification output in the app.
+**Who it helps:** developers and small teams reviewing AI-assisted changes. They need the patch, the repository’s own check output, and a clear record of which model and task produced that evidence.
+
+**How the demo works:** select a repository and ask PatchProof to fix a failing behavior. It inspects the source, tests, and Git changes; records the failing baseline; makes a focused patch; runs the repository’s configured checks; and, when needed, iterates on related failures. The app shows each verification result as it happens. `verify_project` only selects the named `test`, `lint`, `typecheck`, and `build` scripts, then records actual output, exit status, duration, task, and provider/model in `.chat/receipts/`. Review the final Git diff beside that evidence.
 
 **Hackathon model:** NVIDIA Nemotron 3.5 Lightning through Nebius Token Factory. The current model ID and Token Factory endpoint are prefilled by **Settings → Fill Nebius + Nemotron**. The model is served through Nebius’s OpenAI-compatible API; see the [Nebius Nemotron model page](https://nebius.com/services/token-factory/models/nvidia-nemotron-models-inference).
 
@@ -19,6 +21,8 @@ The repo remains in the selected workspace. File contents returned to the agent 
 **Three-minute demo outline:** show the selected repository and Nebius/Nemotron model; submit one small coding task; show the model’s file inspection and edits; run `verify_project`; open the receipt and compare it with the Git diff. Keep the demo on a real repository with a repeatable task and visible checks.
 
 Three ready-to-use demo repositories, copy-ready prompts, and a timed video workflow are in [`demo-repos/README.md`](demo-repos/README.md). Each repo starts from a clean Git commit with an intentional failing check, so PatchProof can produce a focused diff and verification receipt.
+
+The [hackathon video script and submission checklist](HACKATHON-DEMO-SCRIPT.md) include the narration, screen actions, project description, and a factual summary of the work completed during the submission period.
 
 **Submission items to complete:** publish the repository with this MIT license and setup guide, host a working demo URL, and upload a public YouTube demo of three minutes or less. Include the required track and project description in the submission form. Add honest feedback on Nebius Token Factory and NVIDIA Nemotron after trying the build. If this project predates the submission period, describe which PatchProof workflow, verification feature, and Nebius/Nemotron integration were added during that period.
 
@@ -134,7 +138,7 @@ The Model library page reports whether in-process inference is loaded, whether `
 - Multi-turn chat: the last messages in the session are sent with each run, not only the latest prompt.
 - Streaming: the UI reads server-sent events and can stop generation.
 - Agent tools: App mode can read, list, and search the workspace. Code mode can also write files and run a timed shell command in the project directory. Secrets such as `backend/.env` and the SQLite database are blocked.
-- Project selection: choose an absolute server-side directory under **Settings → Project files**. The project root is saved with private permissions in the ignored `.chat/workspace.local.json` file and used as the current directory and filesystem boundary for tools. `CHAT_WORKSPACE` overrides the saved path at startup.
+- Project selection: type an absolute server-side directory or use **Browse folders** under **Settings → Project files** to navigate and select it. The project root is saved with private permissions in the ignored `.chat/workspace.local.json` file and used as the current directory and filesystem boundary for tools. `CHAT_WORKSPACE` overrides the saved path at startup.
 - Claude Code-style tools in Code mode: `glob`, `grep`, `read_file`, `list_dir`, `edit_file`, `write_file`, `bash`, `git_status`, and `git_diff`. Existing `search_files`, `patch_file`, and `run_command` names remain available. Editing rejects ambiguous matches; Git inspection is read-only.
 - Local safety: the server binds to `127.0.0.1` by default, and project-backed agent runs and project-path changes reject non-loopback requests. Code-mode shell commands run with the backend process user's OS permissions; use only with trusted prompts and projects. Set `HOST` only when intentionally changing the listener address.
 - Code mode also loads root `AGENTS.md`, `CLAUDE.md`, `.claude/CLAUDE.md`, and `.github/copilot-instructions.md` files as project instructions when present.
@@ -152,9 +156,14 @@ Open **Settings**, choose a provider, set its model ID and any required endpoint
 | Ollama | Default `http://127.0.0.1:11434` |
 | OpenAI-compatible API | Defaults to OpenAI's API; custom compatible endpoints are supported |
 | Nebius Token Factory | OpenAI-compatible API, default `https://api.tokenfactory.nebius.com/v1` |
+| 9Router | OpenAI-compatible API, default `http://localhost:20128/v1`; copy the API key and a model ID from the 9Router dashboard |
 | Anthropic | Anthropic Messages API |
 | Google Gemini | Gemini generateContent API |
 | Mock | Returns an explicit message that no model was called |
+
+To connect 9Router, start it and open its dashboard, copy an API key and a model ID from its provider/model list, then select **9Router** in AngChat **Settings**. The default endpoint is `http://localhost:20128/v1`; enter the copied model ID and key, save, and choose **Test connection**. To keep the key across restarts, set `LLM_PROVIDER=9router`, `LLM_MODEL`, `LLM_BASE_URL`, and `LLM_API_KEY` in `backend/.env`. The model key is sent to 9Router as an OpenAI-compatible Bearer token and is not returned by AngChat's settings API.
+
+If AngChat is deployed separately (for example on Render or Cloudflare), `localhost` refers to the AngChat container, not the computer running 9Router. Set the base URL to a private/reachable 9Router address or secured tunnel endpoint that the deployment can access, and protect that endpoint and key appropriately.
 
 ## Add and run local models
 
@@ -172,6 +181,7 @@ Model weights in `models/` are ignored by Git. The library accepts GGUF files, G
 - `GET /api/harness/config`; `GET /api/harness/tools`
 - `POST /api/verification/run`; `GET /api/verification/receipts`
 - `GET, PUT /api/workspace` (loopback requests only; selects a local project directory)
+- `GET /api/workspace/directories` (loopback requests only; lists folders for the project picker)
 - `GET, PUT /api/settings`
 - `POST /api/provider/test`
 - `GET, POST /api/sessions`; `GET /api/sessions/:id/messages`; `PATCH, DELETE /api/sessions/:id`

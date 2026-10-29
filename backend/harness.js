@@ -172,8 +172,17 @@ async function runHarness({ req, res, db, ownerId, settings, body }) {
           ok = false;
           output = error.message;
         }
-        toolsUsed.push({ name: call.name, ok, preview: previewTool(output) });
-        emit('tool_result', { name: call.name, ok, preview: previewTool(output) });
+        let verification = null;
+        if (ok && call.name === 'verify_project') {
+          try {
+            verification = JSON.parse(output);
+            emit('verification', verification);
+          } catch {
+            // Keep the tool output in the model transcript if it is not structured JSON.
+          }
+        }
+        toolsUsed.push({ name: call.name, ok, status: verification?.status || null, preview: previewTool(output) });
+        emit('tool_result', { name: call.name, ok, status: verification?.status || null, preview: previewTool(output) });
         messages.push({
           role: 'tool',
           name: call.name,

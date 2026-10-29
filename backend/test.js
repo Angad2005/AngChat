@@ -11,6 +11,7 @@ const { completeTurn, normalizeSettings, publicSettings } = require('./providers
 const verification = require('./verification');
 const traces = require('./traces');
 const { createBasicAuthMiddleware } = require('./deployment-auth');
+const { browseDirectories } = require('./workspace-browser');
 
 function testDeploymentBasicAuth() {
   assert.throws(() => createBasicAuthMiddleware({ username: 'demo' }), /requires both/);
@@ -40,6 +41,32 @@ function testDeploymentBasicAuth() {
   const valid = request('/api/settings', `Basic ${Buffer.from('demo:strong-secret').toString('base64')}`);
   assert.equal(valid.continued, true);
   assert.equal(valid.req.angchatDeploymentAuthenticated, true);
+}
+
+function testWorkspaceDirectoryBrowser() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-workspace-browser-'));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-workspace-browser-outside-'));
+  try {
+    fs.mkdirSync(path.join(root, 'Project 2'));
+    fs.mkdirSync(path.join(root, 'Project 10'));
+    fs.writeFileSync(path.join(root, 'README.md'), 'not a directory');
+    const result = browseDirectories(root);
+    assert.equal(result.path, fs.realpathSync(root));
+    assert.equal(result.parentPath, path.dirname(fs.realpathSync(root)));
+    assert.deepEqual(result.directories.map(directory => directory.name), ['Project 2', 'Project 10']);
+    assert.equal(result.canSelect, true);
+    assert.equal(result.truncated, false);
+    assert.throws(() => browseDirectories(path.join(root, 'README.md')), /not a directory/);
+    assert.throws(() => browseDirectories('relative/path'), /must be absolute/);
+    assert.throws(() => browseDirectories(outside, { allowedRoot: root }), /restricted/);
+    assert.throws(() => browseDirectories(root, { allowedRoot: outside }), /restricted/);
+    const rootResult = browseDirectories(path.parse(root).root);
+    assert.equal(rootResult.parentPath, null);
+    assert.equal(rootResult.canSelect, false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
 }
 
 const xml = 'Checking the file.\n<tool_call>{"name":"read_file","arguments":{"path":"Readme.md"}}</tool_call>';
@@ -74,6 +101,9 @@ const nebiusSettings = normalizeSettings({ provider: 'nebius', model: 'nvidia/ll
 assert.equal(nebiusSettings.provider, 'nebius');
 assert.equal(nebiusSettings.model, 'nvidia/llama-3.1-nemotron-ultra-253b-v1');
 assert.equal(publicSettings({ ...nebiusSettings, apiKey: 'secret' }).apiKey, undefined);
+const nineRouterSettings = normalizeSettings({ provider: '9router', model: 'kr/claude-sonnet-4.5' });
+assert.equal(nineRouterSettings.provider, '9router');
+assert.equal(nineRouterSettings.model, 'kr/claude-sonnet-4.5');
 
 // Test context compression & estimation
 const context = require('./context');
@@ -149,6 +179,33 @@ async function testNebiusProvider() {
     assert.equal(request.url, 'https://api.tokenfactory.nebius.com/v1/chat/completions');
     assert.equal(request.options.headers.Authorization, 'Bearer test-token');
     assert.equal(JSON.parse(request.options.body).model, nebiusSettings.model);
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
+async function test9RouterProvider() {
+  const originalFetch = global.fetch;
+  let request;
+  const apiKey = 'dashboard-api-key';
+  global.fetch = async (url, options) => {
+    request = { url: String(url), options };
+    return {
+      ok: true,
+      text: async () => JSON.stringify({ choices: [{ message: { content: '9Router response' } }] })
+    };
+  };
+  try {
+    const result = await completeTurn({
+      mode: 'app',
+      messages: [{ role: 'user', content: 'ping' }],
+      settings: { ...nineRouterSettings, apiKey }
+    });
+    assert.equal(result.text, '9Router response');
+    assert.equal(result.engine, '9router');
+    assert.equal(request.url, 'http://localhost:20128/v1/chat/completions');
+    assert.equal(request.options.headers.Authorization, `Bearer ${apiKey}`);
+    assert.equal(JSON.parse(request.options.body).model, 'kr/claude-sonnet-4.5');
   } finally {
     global.fetch = originalFetch;
   }
@@ -428,7 +485,9 @@ function testTraceCapture() {
 
 Promise.resolve()
   .then(testDeploymentBasicAuth)
+  .then(testWorkspaceDirectoryBrowser)
   .then(testNebiusProvider)
+  .then(test9RouterProvider)
   .then(testLocalProviderApiKey)
   .then(testCloudflareAccessVerification)
   .then(testVerification)

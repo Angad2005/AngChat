@@ -17,7 +17,7 @@ const DEFAULTS = {
   auxiliaryProviders: {}
 };
 
-const PROVIDERS = ['openai', 'nebius', 'local', 'ollama', 'anthropic', 'gemini', 'mock'];
+const PROVIDERS = ['openai', 'nebius', '9router', 'local', 'ollama', 'anthropic', 'gemini', 'mock'];
 const AUXILIARY_TASKS = ['compression', 'vision', 'skills_hub', 'memory'];
 
 function publicSettings(settings) {
@@ -461,14 +461,15 @@ async function completeTurn({ mode, messages, settings, toolsEnabled, onToken, s
     return { ...result, engine: 'ollama' };
   }
 
-  if (settings.provider === 'openai' || settings.provider === 'nebius' || settings.provider === 'local') {
+  if (settings.provider === 'openai' || settings.provider === 'nebius' || settings.provider === '9router' || settings.provider === 'local') {
     const base = settings.baseUrl || (
       settings.provider === 'local' ? 'http://127.0.0.1:8080/v1' :
         settings.provider === 'nebius' ? 'https://api.tokenfactory.nebius.com/v1' :
+          settings.provider === '9router' ? 'http://localhost:20128/v1' :
           'https://api.openai.com/v1'
     );
     const headers = { 'Content-Type': 'application/json' };
-    if ((settings.provider === 'openai' || settings.provider === 'nebius' || settings.provider === 'local') && settings.apiKey) {
+    if (settings.apiKey) {
       headers.Authorization = `Bearer ${settings.apiKey}`;
     }
     const result = await completeOpenAi({

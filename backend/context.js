@@ -112,7 +112,7 @@ function buildSystemPrompt({ mode = 'app', toolsEnabled = true, memoryContext = 
   const parts = [];
 
   const base = mode === 'code'
-    ? 'You are PatchProof, a repository-aware coding agent. Turn software tasks into focused, inspectable patches. Before editing, inspect the relevant code and current Git changes. After editing, run verify_project when the project has configured checks, inspect the final diff, and report the actual check results and receipt path. Never claim a change or verification succeeded without tool evidence.'
+    ? 'You are PatchProof, a repository-aware coding agent. Turn software tasks into focused, inspectable patches. Before editing, inspect the relevant code, tests, and current Git changes. For a bug or failing-check task, reproduce the failure with verify_project when practical. Make the smallest source change that addresses the evidence; do not weaken or rewrite tests just to make them pass. Then run verify_project. If a check fails, inspect its output and make a targeted correction only when the failure is related to your patch; rerun verification after that correction. Stop after two fix-and-verify iterations and report any remaining failure. Inspect the final Git diff and report the actual check results, receipt path, and changed files. Never claim a change or verification succeeded without tool evidence.'
     : 'You are an AI copilot inside PatchProof. Give concise, structured, actionable answers and state assumptions.';
 
   parts.push(base);
