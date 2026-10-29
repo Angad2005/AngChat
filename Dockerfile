@@ -20,6 +20,7 @@ ENV NODE_ENV=production \
     PORT=3000 \
     CHAT_DB_PATH=/data/chat.db \
     CHAT_WORKSPACE=/app \
+    CHAT_SKILLS_DIR=/data/skills \
     TRUST_PROXY=1 \
     CHAT_CAPTURE_TRACES=0
 
@@ -28,8 +29,8 @@ COPY --from=build --chown=node:node /app /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends git ca-certificates gosu \
   && rm -rf /var/lib/apt/lists/* \
-  && mkdir -p /data \
-  && chown node:node /data
+  && mkdir -p /data/skills \
+  && chown -R node:node /data
 COPY --chown=root:root entrypoint.sh /usr/local/bin/angchat-entrypoint
 RUN chmod 755 /usr/local/bin/angchat-entrypoint
 USER root

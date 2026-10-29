@@ -25,6 +25,8 @@ services:
         value: "1"
       - key: CHAT_DB_PATH
         value: /data/chat.db
+      - key: CHAT_SKILLS_DIR
+        value: /data/skills
       - key: CHAT_WORKSPACE_SETTINGS_FILE
         value: /data/workspace.local.json
       - key: CHAT_CAPTURE_TRACES

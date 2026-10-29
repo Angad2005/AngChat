@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const workspaceDir = path.resolve(__dirname, '..');
-const skillsDir = path.join(workspaceDir, 'skills');
+const skillsDir = path.resolve(process.env.CHAT_SKILLS_DIR || path.join(workspaceDir, 'skills'));
 
 function parseSkillFrontmatter(content) {
   const match = content.match(/^---\s*([\s\S]*?)\s*---\s*([\s\S]*)$/);

@@ -1,5 +1,4 @@
 .git
-.gitignore
 .npmrc
 node_modules
 backend/node_modules

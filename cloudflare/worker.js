@@ -40,6 +40,7 @@ function envForContainer(env) {
     HOST: '0.0.0.0',
     PORT: String(PORT),
     CHAT_DB_PATH: '/data/chat.db',
+    CHAT_SKILLS_DIR: '/data/skills',
     CHAT_WORKSPACE: '/app',
     CHAT_CAPTURE_TRACES: '0',
     CLOUDFLARE_CONTAINER: '1',

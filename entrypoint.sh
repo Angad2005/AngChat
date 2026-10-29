@@ -17,4 +17,9 @@ if [ "${ANGCHAT_CLOUD_DEPLOYMENT:-}" = "render" ]; then
   chown node:node /data
 fi
 
+if [ "${CHAT_SKILLS_DIR:-}" = "/data/skills" ]; then
+  mkdir -p /data/skills
+  chown -R node:node /data/skills
+fi
+
 exec gosu node "$@"
