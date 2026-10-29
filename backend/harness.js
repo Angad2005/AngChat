@@ -82,6 +82,8 @@ async function runHarness({ req, res, db, ownerId, settings, body }) {
   let finalText = '';
   let usage = null;
   let engine = settings.provider;
+  let activeProvider = settings.provider;
+  let activeModel = settings.model;
   let mock = false;
   let fallbackUsed = false;
 
@@ -132,6 +134,8 @@ async function runHarness({ req, res, db, ownerId, settings, body }) {
       });
       mock = Boolean(result.mock);
       engine = result.engine || engine;
+      activeProvider = result.provider || activeProvider;
+      activeModel = result.model || activeModel;
       usage = result.usage || usage;
       if (result.fallbackUsed) fallbackUsed = true;
 
@@ -157,7 +161,13 @@ async function runHarness({ req, res, db, ownerId, settings, body }) {
         let output;
         let ok = true;
         try {
-          output = await executeTool(call.name, call.arguments || {}, { signal: abort.signal, db, ownerId });
+          output = await executeTool(call.name, call.arguments || {}, {
+            signal: abort.signal,
+            db,
+            ownerId,
+            provider: activeProvider,
+            model: activeModel
+          });
         } catch (error) {
           ok = false;
           output = error.message;
@@ -186,8 +196,8 @@ async function runHarness({ req, res, db, ownerId, settings, body }) {
         traceCaptured = traces.appendExecutionTrace({
           sessionId,
           mode,
-          provider: settings.provider,
-          model: settings.model,
+          provider: activeProvider,
+          model: activeModel,
           prompt,
           response: finalText,
           tools: toolsUsed.map(({ name, ok }) => ({ name, ok })),
@@ -207,8 +217,8 @@ async function runHarness({ req, res, db, ownerId, settings, body }) {
     const payload = {
       sessionId,
       mode,
-      provider: settings.provider,
-      model: settings.model,
+      provider: activeProvider,
+      model: activeModel,
       status: 'ok',
       text: finalText,
       mock,

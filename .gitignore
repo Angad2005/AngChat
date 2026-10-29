@@ -1,29 +1,56 @@
 # Dependencies
 node_modules/
-backend/node_modules/
 
-# Secrets and local environment
-.env
-.env.*
-!.env.example
-backend/.env
+# Environment files and local secrets
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
 
-# Local model weights and download staging files
-/models/**
+# Local databases and runtime state
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+/.chat/workspace.local.json
+/.chat/brain/MEMORY.md
+/.chat/brain/USER.md
+/.chat/traces/*
+!/.chat/traces/README.md
+
+# Downloaded model weights (keep model library documentation)
+/models/*
 !/models/README.md
 !/models/.gitkeep
 
-# Local runtime data
-backend/*.db
-backend/*.db-*
-.chat/brain/MEMORY.md
-.chat/brain/USER.md
-.chat/workspace.local.json
-.chat/traces/*.jsonl
+# Build and test output
+/coverage/
+/dist/
+/build/
+/out/
+*.tsbuildinfo
 
-# Logs and OS/editor files
+# Logs and temporary files
 *.log
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# Operating system metadata
 .DS_Store
 Thumbs.db
-.vscode/
-.idea/
+Desktop.ini
+
+demo-repos/*

@@ -1,0 +1,45 @@
+services:
+  - type: web
+    name: angchat-demo
+    runtime: docker
+    plan: 1c-2g
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    numInstances: 1
+    disk:
+      name: angchat-data
+      mountPath: /data
+      sizeGB: 5
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: TRUST_PROXY
+        value: "1"
+      - key: ANGCHAT_CLOUD_DEPLOYMENT
+        value: render
+      - key: ANGCHAT_REQUIRE_BASIC_AUTH
+        value: "1"
+      - key: CHAT_DB_PATH
+        value: /data/chat.db
+      - key: CHAT_WORKSPACE_SETTINGS_FILE
+        value: /data/workspace.local.json
+      - key: CHAT_CAPTURE_TRACES
+        value: "0"
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DEMO_BASIC_USER
+        generateValue: true
+      - key: DEMO_BASIC_PASSWORD
+        generateValue: true
+      - key: LLM_PROVIDER
+        value: nebius
+      - key: LLM_MODEL
+        value: nvidia/Nemotron-3_5-Lightning
+      - key: LLM_BASE_URL
+        value: https://api.tokenfactory.nebius.com/v1
+      - key: LLM_API_KEY
+        sync: false

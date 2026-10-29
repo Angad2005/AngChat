@@ -7,6 +7,61 @@ const DEFAULT_SCRIPTS = ['test'];
 const SCRIPT_TIMEOUT_MS = 5 * 60 * 1000;
 const MAX_OUTPUT_CHARS = 32_000;
 
+function ensureProjectMetadataDir(root) {
+  const dir = path.join(root, '.chat');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function writeVerificationReceipt({ root, task, scripts, report, agent }) {
+  const baseDir = ensureProjectMetadataDir(root);
+  const receiptDir = path.join(baseDir, 'receipts');
+  fs.mkdirSync(receiptDir, { recursive: true });
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const filePath = path.join(receiptDir, `verification-${timestamp}.json`);
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    task: task || 'Verification run',
+    ...(agent?.provider || agent?.model ? {
+      agent: {
+        provider: agent.provider || null,
+        model: agent.model || null
+      }
+    } : {}),
+    scripts: [...(scripts || [])],
+    status: report.status,
+    summary: {
+      passed: report.reward.passed,
+      total: report.reward.total,
+      score: Number(report.reward.score.toFixed(3))
+    },
+    results: report.results.map(result => ({
+      name: result.name,
+      status: result.status,
+      exitCode: result.exitCode,
+      durationMs: result.durationMs,
+      timedOut: Boolean(result.timedOut),
+      output: result.output
+    }))
+  };
+  fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
+  return { filePath, payload };
+}
+
+function listReceipts(root, limit = 10) {
+  const dir = path.join(root, '.chat', 'receipts');
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
+    .filter(name => name.endsWith('.json'))
+    .sort((a, b) => b.localeCompare(a))
+    .slice(0, limit)
+    .map(name => ({
+      name,
+      path: path.join(dir, name),
+      updatedAt: fs.statSync(path.join(dir, name)).mtime.toISOString()
+    }));
+}
+
 function readVerificationConfig(root) {
   const configPath = path.join(root, '.chat', 'config.json');
   if (!fs.existsSync(configPath)) return { scripts: DEFAULT_SCRIPTS };
@@ -82,7 +137,7 @@ function runScript(root, name, timeoutMs = SCRIPT_TIMEOUT_MS) {
   });
 }
 
-async function verifyProject({ root, scripts, timeoutMs = SCRIPT_TIMEOUT_MS } = {}) {
+async function verifyProject({ root, scripts, timeoutMs = SCRIPT_TIMEOUT_MS, task, agent } = {}) {
   const projectRoot = path.resolve(root || process.cwd());
   const packageJsonScripts = packageScripts(projectRoot);
   const configured = scripts === undefined ? readVerificationConfig(projectRoot).scripts : scripts;
@@ -98,12 +153,14 @@ async function verifyProject({ root, scripts, timeoutMs = SCRIPT_TIMEOUT_MS } = 
   for (const name of selected) results.push(await runScript(projectRoot, name, timeoutMs));
   const passed = results.filter(result => result.status === 'passed').length;
   const score = passed / results.length;
-  return {
+  const report = {
     root: projectRoot,
     status: passed === results.length ? 'passed' : 'failed',
     reward: { score, passed, total: results.length },
     results
   };
+  const receipt = writeVerificationReceipt({ root: projectRoot, task, scripts: selected, report, agent });
+  return { ...report, receipt: receipt.payload, receiptPath: receipt.filePath };
 }
 
-module.exports = { ALLOWED_SCRIPTS, DEFAULT_SCRIPTS, readVerificationConfig, verifyProject };
+module.exports = { ALLOWED_SCRIPTS, DEFAULT_SCRIPTS, readVerificationConfig, verifyProject, writeVerificationReceipt, listReceipts };

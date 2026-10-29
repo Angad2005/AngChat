@@ -30,7 +30,7 @@ function publicSettings(settings) {
     toolsEnabled: settings.toolsEnabled !== false,
     inferenceEngine: settings.inferenceEngine || 'auto',
     inProcess: inference.isReady(),
-    hasApiKey: settings.provider !== 'local' && settings.provider !== 'ollama' && Boolean(settings.apiKey),
+    hasApiKey: settings.provider !== 'ollama' && Boolean(settings.apiKey),
     hasFallback: Boolean(settings.fallbackProviders?.length),
     retryAttempts: settings.retryAttempts || 2
   };
@@ -69,8 +69,8 @@ function normalizeSettings(input = {}, current = DEFAULTS) {
 
 function systemPrompt(mode, toolsEnabled) {
   const base = mode === 'code'
-    ? 'You are a coding assistant inside the Chat harness. Prefer precise, repository-aware answers when workspace context is present. Do not claim to inspect files, run commands, or edit code unless a tool actually did so.'
-    : 'You are an AI product copilot inside the Chat harness. Give concise, structured, actionable answers and state assumptions.';
+    ? 'You are PatchProof, a repository-aware coding agent. Prefer precise, small patches, then verify changes with the project’s configured checks. Do not claim to inspect files, run commands, or edit code unless a tool actually did so.'
+    : 'You are an AI product copilot inside PatchProof. Give concise, structured, actionable answers and state assumptions.';
   return toolsEnabled ? `${base}\n\n${toolPrompt(mode)}` : base;
 }
 
@@ -468,7 +468,9 @@ async function completeTurn({ mode, messages, settings, toolsEnabled, onToken, s
           'https://api.openai.com/v1'
     );
     const headers = { 'Content-Type': 'application/json' };
-    if ((settings.provider === 'openai' || settings.provider === 'nebius') && settings.apiKey) headers.Authorization = `Bearer ${settings.apiKey}`;
+    if ((settings.provider === 'openai' || settings.provider === 'nebius' || settings.provider === 'local') && settings.apiKey) {
+      headers.Authorization = `Bearer ${settings.apiKey}`;
+    }
     const result = await completeOpenAi({
       base,
       headers,
@@ -560,6 +562,8 @@ async function completeTurnWithFallback(params) {
         const result = await completeTurn({ ...params, settings: currentSettings });
         return {
           ...result,
+          provider: currentSettings.provider,
+          model: currentSettings.model,
           fallbackUsed: i > 0,
           attemptedProviders
         };

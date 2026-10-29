@@ -6,13 +6,22 @@
   "bin": {
     "chat": "bin/chat.js"
   },
-  "workspaces": ["backend"],
+  "workspaces": [
+    "backend"
+  ],
   "scripts": {
     "install:backend": "npm install --prefix backend",
     "start": "npm --prefix backend start",
     "dev": "npm --prefix backend run dev",
     "test": "npm --prefix backend test",
-    "chat": "node bin/chat.js"
+    "chat": "node bin/chat.js",
+    "cloudflare:dev": "wrangler dev",
+    "cloudflare:deploy": "wrangler deploy"
   },
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "wrangler": "^4.155.0"
+  }
 }

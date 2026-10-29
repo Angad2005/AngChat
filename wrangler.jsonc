@@ -1,0 +1,38 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "angchat-demo",
+  "main": "cloudflare/worker.js",
+  "compatibility_date": "2026-10-29",
+  "containers": [
+    {
+      "class_name": "AngChatContainer",
+      "scheduling_policy": "durable_object",
+      "images": {
+        "base": {
+          "dockerfile": "./Dockerfile"
+        }
+      }
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ANGCHAT",
+        "class_name": "AngChatContainer"
+      }
+    ]
+  },
+  "exports": {
+    "AngChatContainer": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "vars": {
+    "ACCESS_TEAM_DOMAIN": "replace-with-your-team.cloudflareaccess.com",
+    "ACCESS_AUD": "replace-with-your-access-application-aud-tag",
+    "LLM_PROVIDER": "nebius",
+    "LLM_MODEL": "nvidia/Nemotron-3_5-Lightning",
+    "LLM_BASE_URL": "https://api.tokenfactory.nebius.com/v1"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "generatedAt": "2026-10-29T14:38:29.648Z",
+  "task": "Manual PatchProof verification",
+  "scripts": [
+    "test"
+  ],
+  "status": "passed",
+  "summary": {
+    "passed": 1,
+    "total": 1,
+    "score": 1
+  },
+  "results": [
+    {
+      "name": "test",
+      "status": "passed",
+      "exitCode": 0,
+      "durationMs": 540,
+      "timedOut": false,
+      "output": "> chat-engineering-harness@1.0.0 test\n> npm --prefix backend test\n\n\n> chat-engineering-harness-backend@1.0.0 test\n> node --check index.js initialize-database.js providers.js models.js tools.js inference.js harness.js memory.js skills.js context.js verification.js traces.js && node test.js\n\nChat harness tests passed."
+    }
+  ]
+}

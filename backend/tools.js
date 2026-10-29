@@ -23,7 +23,7 @@ const COMMAND_TIMEOUT_MS = 20_000;
 const SKIP_DIR_NAMES = new Set(['node_modules', '.git', 'dist', 'build', '.cursor', 'vendor', 'coverage']);
 const VISIBLE_HIDDEN_NAMES = new Set(['.claude', '.chat', '.github', '.husky', '.vscode']);
 const CODE_ONLY_TOOLS = new Set([
-  'write_file', 'run_command', 'bash', 'patch_file', 'edit_file', 'git_status', 'git_diff'
+  'write_file', 'run_command', 'bash', 'patch_file', 'edit_file', 'git_status', 'git_diff', 'verify_project'
 ]);
 const BLOCKED_RELATIVE = new Set([
   'backend/.env',
@@ -135,6 +135,22 @@ const TOOL_SCHEMAS = [
       additionalProperties: false,
       properties: { command: { type: 'string', description: 'Shell command to run.' } },
       required: ['command']
+    }
+  },
+  {
+    name: 'verify_project',
+    description: 'Run the selected project’s configured checks and save a JSON verification receipt. Only the npm scripts test, lint, typecheck, and build can be selected; omit scripts to use .chat/config.json or the default test script.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        scripts: {
+          type: 'array',
+          items: { type: 'string', enum: ['test', 'lint', 'typecheck', 'build'] },
+          description: 'Optional allowlisted npm script names to run.'
+        },
+        task: { type: 'string', maxLength: 500, description: 'Short description of the coding task for the receipt.' }
+      }
     }
   },
   {
@@ -688,7 +704,28 @@ async function skillCreateTool(args, db) {
   return `Created procedural skill: ${skill.name} (v${skill.version}) at ${skill.file_path}`;
 }
 
-async function executeTool(name, rawArgs, { signal, db, ownerId } = {}) {
+async function verifyProjectTool(args, agent) {
+  const { verifyProject } = require('./verification');
+  const task = typeof args.task === 'string' ? args.task.slice(0, 500) : 'Coding agent verification';
+  const report = await verifyProject({ root: workspaceDir, scripts: args.scripts, task, agent });
+  return JSON.stringify({
+    status: report.status,
+    summary: report.reward,
+    agent: report.receipt.agent || null,
+    receiptPath: report.receiptPath,
+    results: report.results.map(result => ({
+      name: result.name,
+      status: result.status,
+      exitCode: result.exitCode,
+      durationMs: result.durationMs,
+      timedOut: Boolean(result.timedOut),
+      output: String(result.output || '').slice(-6000),
+      error: result.error || undefined
+    }))
+  }, null, 2);
+}
+
+async function executeTool(name, rawArgs, { signal, db, ownerId, provider, model } = {}) {
   const args = rawArgs && typeof rawArgs === 'object' ? rawArgs : {};
   switch (name) {
     case 'read_file': return readFileTool(args);
@@ -699,6 +736,7 @@ async function executeTool(name, rawArgs, { signal, db, ownerId } = {}) {
     case 'write_file': return writeFileTool(args);
     case 'run_command':
     case 'bash': return runCommandTool(args, signal);
+    case 'verify_project': return verifyProjectTool(args, { provider, model });
     case 'patch_file': return patchFileTool(args);
     case 'edit_file': return editFileTool(args);
     case 'git_status': return runGitTool(args);

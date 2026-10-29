@@ -36,12 +36,13 @@ async function verify(args) {
   if (requested?.some(name => !ALLOWED_SCRIPTS.has(name))) {
     throw new Error('Allowed verification scripts: test, lint, typecheck, build.');
   }
-  const report = await verifyProject({ root, scripts: requested });
+  const report = await verifyProject({ root, scripts: requested, task: 'CLI verification run' });
   for (const result of report.results) {
     console.log(`\n${result.status.toUpperCase()} ${result.name} (${result.durationMs} ms)`);
     if (result.output) console.log(result.output);
   }
   console.log(`\nVerification ${report.status}: ${report.reward.passed}/${report.reward.total} checks (${report.reward.score.toFixed(2)})`);
+  console.log(`Receipt saved to: ${report.receiptPath}`);
   if (report.status !== 'passed') process.exitCode = 1;
 }
 

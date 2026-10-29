@@ -1,8 +1,68 @@
-# Chat Engineering Harness
+# PatchProof
 
-Chat is a local-first engineering harness for hosted APIs and local models. The browser UI uses a plain HTML/JavaScript frontend; an Express backend handles provider calls, in-process GGUF inference, an agent tool loop, SQLite chat history and searchable memory, account administration, and model-library operations. Its Digital Brain lives under `.chat/brain/`: Markdown context files are loaded locally, while searchable memories and skills use SQLite FTS5. Existing root-level `MEMORY.md` and `USER.md` files remain readable for compatibility; new edits are stored in `.chat/brain/`.
+**Repo → patch → proof.** PatchProof is a repository-aware coding agent for the **Coding and Agentic Engineering** track. It uses NVIDIA Nemotron through Nebius Token Factory to inspect a selected codebase, make focused edits, and run the project’s configured checks. Each verification run writes a JSON receipt with the task, scripts, outcomes, durations, and output; agent-triggered receipts also record the provider and model used for that run. Judges can inspect concrete evidence instead of relying on an agent’s claim that a change works.
 
-The current implementation stays in the existing cross-platform Node.js stack. The repository is MIT-licensed and can be installed from source. Nebius Token Factory is available through its OpenAI-compatible API; select **Nebius Token Factory** in Settings, enter a model ID and API key, then test the connection. The project includes a usable local verification command, opt-in JSONL execution traces, and the local Digital Brain layout. Cloud bursting, Rust daemon/worktrees, ChromaDB/KùzuDB indexing, hardware profiling, shadow replay, and automated fine-tuning still require separate infrastructure and are not included.
+The repo remains in the selected workspace. File contents returned to the agent are sent to the configured model provider; verification scripts run locally. PatchProof supports streaming, persistent sessions, Git status and diff inspection, workspace-bounded file tools, and local verification receipts. The project is MIT-licensed and uses the existing cross-platform Node.js stack. It also retains optional local GGUF inference, searchable memory, skills, and opt-in execution traces.
+
+## Hackathon build
+
+**Track:** Coding and Agentic Engineering.
+
+**Problem:** coding agents can produce plausible patches without showing whether the repository’s own checks pass. PatchProof makes verification a first-class step in the agent loop and saves the result as a reviewable artifact.
+
+**How the demo works:** select a repository, choose a task such as “fix a failing check,” and let the model inspect and edit files using workspace tools. The agent can call `verify_project`, which only accepts the named `test`, `lint`, `typecheck`, and `build` scripts, then records a receipt under `.chat/receipts/`. Review the final Git diff and the verification output in the app.
+
+**Hackathon model:** NVIDIA Nemotron 3.5 Lightning through Nebius Token Factory. The current model ID and Token Factory endpoint are prefilled by **Settings → Fill Nebius + Nemotron**. The model is served through Nebius’s OpenAI-compatible API; see the [Nebius Nemotron model page](https://nebius.com/services/token-factory/models/nvidia-nemotron-models-inference).
+
+**Submission description draft:** *PatchProof is a coding agent that turns repository tasks into inspectable, tested patches. NVIDIA Nemotron on Nebius Token Factory plans and edits code through workspace-bounded tools. After a change, PatchProof runs the repository’s configured checks locally and saves a JSON verification receipt with the scripts, results, timings, and output. This gives developers a concrete signal to review alongside the final Git diff.*
+
+**Three-minute demo outline:** show the selected repository and Nebius/Nemotron model; submit one small coding task; show the model’s file inspection and edits; run `verify_project`; open the receipt and compare it with the Git diff. Keep the demo on a real repository with a repeatable task and visible checks.
+
+Three ready-to-use demo repositories, copy-ready prompts, and a timed video workflow are in [`demo-repos/README.md`](demo-repos/README.md). Each repo starts from a clean Git commit with an intentional failing check, so PatchProof can produce a focused diff and verification receipt.
+
+**Submission items to complete:** publish the repository with this MIT license and setup guide, host a working demo URL, and upload a public YouTube demo of three minutes or less. Include the required track and project description in the submission form. Add honest feedback on Nebius Token Factory and NVIDIA Nemotron after trying the build. If this project predates the submission period, describe which PatchProof workflow, verification feature, and Nebius/Nemotron integration were added during that period.
+
+## Deploy to Cloudflare
+
+The Cloudflare deployment runs the existing Node.js application in a **Cloudflare Container**, fronted by a Worker and a Durable Object. Deployment commands require Node.js 22 or newer, a Workers Paid account, a Docker-compatible engine for image builds, and a custom hostname protected by a Cloudflare Access self-hosted application. The Worker validates Access JWT signatures and audience on every request; it fails closed if Access is missing or misconfigured. Do not remove that gate: Code mode can edit files and run shell commands in the container.
+
+1. Install dependencies and authenticate Wrangler:
+
+   ```bash
+   npm install
+   npx wrangler login
+   ```
+
+2. Configure the secrets used by the Worker and container:
+
+   ```bash
+   openssl rand -hex 32 | npx wrangler secret put CHAT_GATE_SECRET
+   openssl rand -base64 48 | npx wrangler secret put SESSION_SECRET
+   npx wrangler secret put LLM_API_KEY
+   ```
+
+   `CHAT_GATE_SECRET` authenticates the Worker-to-container hop, and `SESSION_SECRET` signs app session cookies; keep both private and stable across deploys. `LLM_API_KEY` is optional if you configure the model from Settings instead. Set `LLM_PROVIDER`, `LLM_MODEL`, and `LLM_BASE_URL` in `wrangler.jsonc` to select the initial model; the example values use Nebius Token Factory.
+3. Build and deploy the Worker and container image. Until Access is configured, the Worker fails closed and returns HTTP 503:
+
+   ```bash
+   npm run cloudflare:deploy
+   ```
+
+4. In Cloudflare Workers & Pages, attach the custom hostname to `angchat-demo`. Create a Cloudflare Access self-hosted application for that hostname and set its policy to allow only the intended demo users' email addresses. Copy the Access team domain and application AUD tag into `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` in `wrangler.jsonc`, then redeploy. Use the Access-protected URL to test the app; direct requests without a valid Access JWT receive HTTP 401.
+
+The Durable Object routes all requests to one `basic` (1/4 vCPU, 1 GiB RAM, 4 GB disk) container. Persisted session, agent-run, verification, settings, workspace, memory, skill, and account changes are streamed through to the app and then snapshot the writable container filesystem, including SQLite data and project changes. Snapshots have Cloudflare's documented 30-day retention; restoring refreshes that retention. This is suitable for a small demo, not a backup strategy: export important work separately, and test snapshot restoration before relying on it. The container needs outbound Internet access for hosted model APIs. Local GGUF model downloads and inference are not part of this deployment.
+
+For local Worker/container development, run `npm run cloudflare:dev` with Docker available. The Worker intentionally requires an Access JWT, so validate the full login flow after deploying behind the configured Access application.
+
+## Deploy to Render
+
+The Render Blueprint in [`render.yaml`](render.yaml) deploys the Node.js app as a Docker web service with a persistent `/data` disk for the SQLite database and editable project workspace. It uses one paid `1c-2g` instance because Render disks are single-instance and do not support zero-downtime deploys. The app process runs as the unprivileged `node` user; the container entrypoint prepares the disk and seeds the initial workspace only once.
+
+1. Push this repository to a Git provider connected to Render, then create a new Blueprint from the repository and apply `render.yaml`. To use the preconfigured Nemotron model, set `LLM_API_KEY` in the service's **Environment** page. Alternatively, leave it unset and choose/configure a provider later in **Settings**.
+2. After the service is live, open its `onrender.com` URL. Render generates `DEMO_BASIC_USER` and `DEMO_BASIC_PASSWORD`; find these values in the service's **Environment** page and share them only with trusted demo users. Basic Auth protects every app route except `/api/health`. Everyone using the shared credentials accesses the same app data and project workspace; this is a single-user demo, not a multi-tenant deployment. Keep the credentials private: Code mode can edit files and run shell commands in the persistent workspace.
+3. Configure or rotate the model key from the Render service's **Environment** page (`LLM_API_KEY`), then redeploy. Provider, model, and project changes are saved in the persistent database/disk. The workspace starts as a copy of the app source and remains on `/data/workspace`; project paths outside `/data` are rejected so edits survive deploys.
+
+Render's disk retains database and project changes across deploys, but the service is single-instance and briefly unavailable during redeploys. The disk is not a substitute for exporting important work or keeping a repository backup. The `1c-2g` service plan and persistent disk are paid Render resources.
 
 ## Run
 
@@ -22,6 +82,19 @@ cp backend/.env.example backend/.env
 ```
 
 On Windows PowerShell, use `Copy-Item backend/.env.example backend/.env`. The file is read by the backend; for example, set `PORT` to change the listening port, or set `LLM_PROVIDER`, `LLM_MODEL`, and `LLM_API_KEY` for a provider. Keep `.env` private and do not commit it. Provider and generation settings can also be changed in the app's **Settings** page.
+
+For the hackathon build, set these values in `backend/.env`, or use the settings preset and enter your API key in the app:
+
+```dotenv
+LLM_PROVIDER=nebius
+LLM_MODEL=nvidia/Nemotron-3_5-Lightning
+LLM_BASE_URL=https://api.tokenfactory.nebius.com/v1
+LLM_API_KEY=your_nebius_token_factory_key
+```
+
+Mock mode is useful for checking the interface but does not satisfy the hackathon model requirement. Use a real Nebius Token Factory key and confirm the connection in **Settings → Test connection** before recording the demo.
+
+Choose the repository to demo in **Settings → Project files**. For a repeatable demo, start with a small task whose expected behavior is clear and whose `test` script runs locally. The code snippets the agent reads are sent to Nebius for inference; the verifier runs in the app process on the workspace machine.
 
 Useful root-level commands:
 
@@ -48,8 +121,9 @@ The harness can run a model in several ways:
 1. **In-process GGUF:** activating a `.gguf` file loads it inside the Node process with optional `node-llama-cpp`. No extra server is required once that library is installed (`npm install` in `backend/` tries to add it).
 2. **llama.cpp server:** if in-process inference is unavailable, activating a GGUF can spawn loopback-only `llama-server` when that binary is on `PATH` or `LLAMA_SERVER_PATH` is set.
 3. **Ollama:** choose the Ollama provider (default `http://127.0.0.1:11434`) and set the Ollama model name.
-4. **Hosted APIs:** OpenAI-compatible, Anthropic, or Google Gemini.
-5. **Mock:** returns an explicit message that no model was called.
+4. **OpenAI-compatible local endpoints:** choose **Local (in-process or OpenAI-compatible)** for LM Studio, llama.cpp server, or another compatible endpoint. LM Studio's default server URL is `http://127.0.0.1:1234/v1`; set the model ID shown by LM Studio. If LM Studio server authentication is enabled, enter its API key in Settings or set `LLM_API_KEY` in `backend/.env`; Chat sends it as a Bearer token. Leave it blank when authentication is disabled. In-process GGUF inference does not send an API key.
+5. **Hosted APIs:** choose OpenAI-compatible, Anthropic, or Google Gemini.
+6. **Mock:** returns an explicit message that no model was called.
 
 Chat does not bundle llama.cpp binaries. Hugging Face Transformers folders need conversion to GGUF or a compatible external runtime.
 
@@ -74,7 +148,7 @@ Open **Settings**, choose a provider, set its model ID and any required endpoint
 
 | Provider | Endpoint |
 | --- | --- |
-| Local (in-process or OpenAI-compatible) | In-process ignores the URL; otherwise a `/v1` URL, default `http://127.0.0.1:8080/v1` |
+| Local (in-process or OpenAI-compatible) | In-process ignores URL and key; otherwise a `/v1` URL (LM Studio default: `http://127.0.0.1:1234/v1`; llama.cpp default: `http://127.0.0.1:8080/v1`). Optional API keys are sent as Bearer tokens. |
 | Ollama | Default `http://127.0.0.1:11434` |
 | OpenAI-compatible API | Defaults to OpenAI's API; custom compatible endpoints are supported |
 | Nebius Token Factory | OpenAI-compatible API, default `https://api.tokenfactory.nebius.com/v1` |
@@ -96,6 +170,7 @@ Model weights in `models/` are ignored by Git. The library accepts GGUF files, G
 
 - `GET /api/health`
 - `GET /api/harness/config`; `GET /api/harness/tools`
+- `POST /api/verification/run`; `GET /api/verification/receipts`
 - `GET, PUT /api/workspace` (loopback requests only; selects a local project directory)
 - `GET, PUT /api/settings`
 - `POST /api/provider/test`

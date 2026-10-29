@@ -10,6 +10,37 @@ const {
 const { completeTurn, normalizeSettings, publicSettings } = require('./providers');
 const verification = require('./verification');
 const traces = require('./traces');
+const { createBasicAuthMiddleware } = require('./deployment-auth');
+
+function testDeploymentBasicAuth() {
+  assert.throws(() => createBasicAuthMiddleware({ username: 'demo' }), /requires both/);
+  const middleware = createBasicAuthMiddleware({ username: 'demo', password: 'strong-secret' });
+  function request(pathname, authorization) {
+    const req = { path: pathname, get: name => name === 'authorization' ? authorization : undefined };
+    const res = {
+      headers: {},
+      set(name, value) { this.headers[name] = value; return this; },
+      status(code) { this.statusCode = code; return this; },
+      type(value) { this.contentType = value; return this; },
+      send(value) { this.body = value; return this; }
+    };
+    let continued = false;
+    middleware(req, res, () => { continued = true; });
+    return { req, res, continued };
+  }
+
+  assert.equal(request('/api/health').continued, true);
+  const missing = request('/api/settings');
+  assert.equal(missing.continued, false);
+  assert.equal(missing.res.statusCode, 401);
+  assert.equal(missing.res.headers['WWW-Authenticate'].startsWith('Basic '), true);
+  assert.equal(missing.res.headers['Cache-Control'], 'no-store');
+  assert.equal(request('/api/settings', `Basic ${Buffer.from('demo:wrong').toString('base64')}`).res.statusCode, 401);
+
+  const valid = request('/api/settings', `Basic ${Buffer.from('demo:strong-secret').toString('base64')}`);
+  assert.equal(valid.continued, true);
+  assert.equal(valid.req.angchatDeploymentAuthenticated, true);
+}
 
 const xml = 'Checking the file.\n<tool_call>{"name":"read_file","arguments":{"path":"Readme.md"}}</tool_call>';
 const calls = parseToolCalls(xml);
@@ -123,6 +154,118 @@ async function testNebiusProvider() {
   }
 }
 
+async function testLocalProviderApiKey() {
+  const originalFetch = global.fetch;
+  const requests = [];
+  global.fetch = async (url, options) => {
+    requests.push({ url: String(url), options });
+    return {
+      ok: true,
+      text: async () => JSON.stringify({ choices: [{ message: { content: 'local response' } }] })
+    };
+  };
+  try {
+    const settings = normalizeSettings({
+      provider: 'local',
+      model: 'loaded-model',
+      baseUrl: 'http://127.0.0.1:1234/v1',
+      inferenceEngine: 'llama-server',
+      apiKey: 'lm-studio-key'
+    });
+    assert.equal(publicSettings(settings).hasApiKey, true);
+    const result = await completeTurn({
+      mode: 'app',
+      messages: [{ role: 'user', content: 'ping' }],
+      settings
+    });
+    assert.equal(result.text, 'local response');
+    assert.equal(result.engine, 'llama-server');
+    assert.equal(requests[0].url, 'http://127.0.0.1:1234/v1/chat/completions');
+    assert.equal(requests[0].options.headers.Authorization, 'Bearer lm-studio-key');
+
+    await completeTurn({
+      mode: 'app',
+      messages: [{ role: 'user', content: 'ping' }],
+      settings: { ...settings, apiKey: '' }
+    });
+    assert.equal(requests[1].options.headers.Authorization, undefined);
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
+async function testCloudflareAccessVerification() {
+  const { webcrypto } = require('crypto');
+  globalThis.crypto ||= webcrypto;
+  const { verifyAccessAssertion } = await import('../cloudflare/access.mjs');
+  const originalFetch = global.fetch;
+  const pair = await webcrypto.subtle.generateKey({
+    name: 'RSASSA-PKCS1-v1_5',
+    modulusLength: 2048,
+    publicExponent: new Uint8Array([1, 0, 1]),
+    hash: 'SHA-256'
+  }, true, ['sign', 'verify']);
+  const jwk = await webcrypto.subtle.exportKey('jwk', pair.publicKey);
+  jwk.kid = 'angchat-test-key';
+  global.fetch = async () => ({ ok: true, json: async () => ({ keys: [jwk] }) });
+
+  async function signedToken(claims) {
+    const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url');
+    const unsigned = `${encode({ alg: 'RS256', kid: jwk.kid })}.${encode(claims)}`;
+    const signature = await webcrypto.subtle.sign(
+      'RSASSA-PKCS1-v1_5',
+      pair.privateKey,
+      new TextEncoder().encode(unsigned)
+    );
+    return `${unsigned}.${Buffer.from(signature).toString('base64url')}`;
+  }
+
+  const env = {
+    ACCESS_TEAM_DOMAIN: 'https://angchat-test.cloudflareaccess.com/',
+    ACCESS_AUD: 'angchat-test-audience'
+  };
+  const now = Math.floor(Date.now() / 1000);
+  const claims = {
+    iss: 'https://angchat-test.cloudflareaccess.com',
+    aud: ['angchat-test-audience'],
+    exp: now + 600,
+    email: 'demo@example.com'
+  };
+  try {
+    const token = await signedToken(claims);
+    const validRequest = new Request('https://demo.example.com/', {
+      headers: { 'Cf-Access-Jwt-Assertion': token }
+    });
+    assert.equal((await verifyAccessAssertion(validRequest, env)).email, claims.email);
+
+    const tokenParts = token.split('.');
+    const invalidSignature = new Request('https://demo.example.com/', {
+      headers: { 'Cf-Access-Jwt-Assertion': `${tokenParts[0]}.${tokenParts[1]}.${Buffer.alloc(256).toString('base64url')}` }
+    });
+    assert.equal(await verifyAccessAssertion(invalidSignature, env), null);
+
+    const wrongAudience = new Request('https://demo.example.com/', {
+      headers: { 'Cf-Access-Jwt-Assertion': await signedToken({ ...claims, aud: ['other-audience'] }) }
+    });
+    assert.equal(await verifyAccessAssertion(wrongAudience, env), null);
+
+    const expired = new Request('https://demo.example.com/', {
+      headers: { 'Cf-Access-Jwt-Assertion': await signedToken({ ...claims, exp: now - 120 }) }
+    });
+    assert.equal(await verifyAccessAssertion(expired, env), null);
+    assert.equal(await verifyAccessAssertion(new Request('https://demo.example.com/'), env), null);
+    await assert.rejects(
+      verifyAccessAssertion(new Request('https://demo.example.com/'), {
+        ACCESS_TEAM_DOMAIN: 'replace-with-your-team.cloudflareaccess.com',
+        ACCESS_AUD: 'replace-with-your-access-application-aud-tag'
+      }),
+      /Set ACCESS_TEAM_DOMAIN and ACCESS_AUD/
+    );
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
 async function testVerification() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-verify-test-'));
   try {
@@ -138,6 +281,7 @@ async function testVerification() {
     assert.equal(report.status, 'passed');
     assert.deepEqual(report.reward, { score: 1, passed: 1, total: 1 });
     assert.match(report.results[0].output, /verified/);
+    assert.ok(report.receiptPath && fs.existsSync(report.receiptPath));
     await assert.rejects(
       verification.verifyProject({ root, scripts: ['postinstall'] }),
       /only test, lint, typecheck, or build/
@@ -283,7 +427,10 @@ function testTraceCapture() {
 }
 
 Promise.resolve()
+  .then(testDeploymentBasicAuth)
   .then(testNebiusProvider)
+  .then(testLocalProviderApiKey)
+  .then(testCloudflareAccessVerification)
   .then(testVerification)
   .then(testInteractiveCli)
   .then(testProjectCodeTools)

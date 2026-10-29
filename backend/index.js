@@ -14,6 +14,8 @@ const skills = require('./skills');
 const { runHarness } = require('./harness');
 const { toolsForMode, getWorkspaceDir, persistWorkspaceDir, setWorkspaceDir } = require('./tools');
 const { initializeDatabase } = require('./initialize-database');
+const { listReceipts, verifyProject } = require('./verification');
+const { createBasicAuthMiddleware } = require('./deployment-auth');
 
 const scrypt = promisify(scryptCallback);
 const app = express();
@@ -24,6 +26,12 @@ let resumeModelId = null;
 
 app.disable('x-powered-by');
 if (process.env.TRUST_PROXY === '1') app.set('trust proxy', 1);
+if (process.env.ANGCHAT_REQUIRE_BASIC_AUTH === '1') {
+  app.use(createBasicAuthMiddleware({
+    username: process.env.DEMO_BASIC_USER,
+    password: process.env.DEMO_BASIC_PASSWORD
+  }));
+}
 app.use(express.json({ limit: '6mb' }));
 app.use(session({
   secret: process.env.SESSION_SECRET || 'angchat-local-development-secret-change-me',
@@ -46,19 +54,43 @@ function isAdmin(req, res, next) {
   return res.status(403).json({ error: 'Administrator access is required.' });
 }
 
-function ownerId(req) { return req.session?.userId ? String(req.session.userId) : 'local'; }
+function ownerId(req) {
+  if (req.session?.userId) return String(req.session.userId);
+  if (isTrustedCloudflareRequest(req)) {
+    const identity = req.get('x-angchat-access-email') || 'shared';
+    return `cloudflare:${identity.toLowerCase().slice(0, 254)}`;
+  }
+  return 'local';
+}
 function sendError(res, error, status = 400) { res.status(status).json({ error: error.message || String(error) }); }
 function isLoopbackRequest(req) {
   const address = req.socket?.remoteAddress || '';
   return address === '127.0.0.1' || address === '::1' || address.startsWith('::ffff:127.');
 }
+function isTrustedCloudflareRequest(req) {
+  const expected = process.env.CHAT_GATE_SECRET;
+  const supplied = req.get('x-angchat-proxy-key') || '';
+  if (!expected) return false;
+  const expectedBytes = Buffer.from(expected);
+  const suppliedBytes = Buffer.from(supplied);
+  return expectedBytes.length === suppliedBytes.length && timingSafeEqual(expectedBytes, suppliedBytes);
+}
+function isTrustedLocalRequest(req) {
+  return isLoopbackRequest(req) || isTrustedCloudflareRequest(req) || req.angchatDeploymentAuthenticated === true;
+}
 function requireLoopback(req, res, next) {
-  if (isLoopbackRequest(req)) return next();
+  if (isTrustedLocalRequest(req)) return next();
   return res.status(403).json({ error: 'Project paths can only be changed from the local machine.' });
 }
 function requireLocalWorkspaceAccess(req, res, next) {
-  if (isLoopbackRequest(req)) return next();
+  if (isTrustedLocalRequest(req)) return next();
   return res.status(403).json({ error: 'Workspace-backed agent runs are only available from the local machine.' });
+}
+function requireLocalModelManagement(_req, res, next) {
+  if (process.env.CLOUDFLARE_CONTAINER === '1' || process.env.ANGCHAT_CLOUD_DEPLOYMENT === 'render') {
+    return res.status(501).json({ error: 'Local model management is unavailable in this cloud deployment. Configure a hosted provider in Settings.' });
+  }
+  return next();
 }
 function validAccount({ username, email, password }, passwordRequired = true) {
   if (typeof username !== 'string' || !/^[A-Za-z0-9_.-]{2,32}$/.test(username.trim())) throw new Error('Username must be 2–32 letters, numbers, dots, dashes, or underscores.');
@@ -105,16 +137,35 @@ app.get('/auth', (_req, res) => res.sendFile(path.join(publicDir, 'Login.html'))
 app.get('/admin', isAuthenticated, isAdmin, (_req, res) => res.sendFile(path.join(publicDir, 'Admin.html')));
 
 app.get('/api/health', (_req, res) => {
-  try { db.prepare('SELECT 1 AS ok').get(); res.json({ ok: true, database: 'ok', name: 'Chat Engineering Harness' }); }
+  try { db.prepare('SELECT 1 AS ok').get(); res.json({ ok: true, database: 'ok', name: 'PatchProof' }); }
   catch (error) { sendError(res, error, 503); }
 });
 app.get('/api/harness/config', (_req, res) => res.json({
-  name: 'Chat Engineering Harness',
+  name: 'PatchProof',
   modes: { app: 'App', code: 'Code' },
   providers: ['openai', 'nebius', 'local', 'ollama', 'anthropic', 'gemini', 'mock'],
-  capabilities: ['persistent-sessions', 'model-library', 'in-process-gguf-inference', 'openai-compatible-local-runtime', 'prompt-attachments', 'streaming', 'workspace-tools', 'agent-loop', 'project-path', 'glob', 'grep', 'file-edit', 'git-inspection']
+  recommendedModel: { provider: 'nebius', model: 'nvidia/Nemotron-3_5-Lightning', baseUrl: 'https://api.tokenfactory.nebius.com/v1' },
+  capabilities: ['persistent-sessions', 'model-library', 'in-process-gguf-inference', 'openai-compatible-local-runtime', 'prompt-attachments', 'streaming', 'workspace-tools', 'agent-loop', 'project-path', 'glob', 'grep', 'file-edit', 'git-inspection', 'verified-execution']
 }));
 app.get('/api/harness/tools', (_req, res) => res.json({ app: toolsForMode('app'), code: toolsForMode('code') }));
+app.get('/api/verification/receipts', (_req, res) => {
+  const root = getWorkspaceDir() || path.resolve(__dirname, '..');
+  res.json({ receipts: listReceipts(root, 10) });
+});
+app.post('/api/verification/run', requireLocalWorkspaceAccess, async (req, res) => {
+  try {
+    const task = typeof req.body?.task === 'string' ? req.body.task.slice(0, 500) : 'Manual project verification';
+    const report = await verifyProject({ root: getWorkspaceDir(), scripts: req.body?.scripts, task });
+    res.json({
+      status: report.status,
+      summary: report.reward,
+      receiptPath: report.receiptPath,
+      results: report.results.map(({ name, status, exitCode, durationMs, timedOut, output, error }) => ({
+        name, status, exitCode, durationMs, timedOut: Boolean(timedOut), output, error
+      }))
+    });
+  } catch (error) { sendError(res, error); }
+});
 app.get('/api/workspace', requireLoopback, (_req, res) => {
   res.json({ path: getWorkspaceDir() });
 });
@@ -122,6 +173,12 @@ app.put('/api/workspace', requireLoopback, (req, res) => {
   const previous = getWorkspaceDir();
   try {
     const workspacePath = setWorkspaceDir(req.body?.path);
+    if (process.env.ANGCHAT_CLOUD_DEPLOYMENT === 'render') {
+      const relative = path.relative('/data', workspacePath);
+      if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+        throw new Error('Render deployments can only use project directories inside the persistent /data disk.');
+      }
+    }
     persistWorkspaceDir();
     res.json({ path: workspacePath });
   } catch (error) {
@@ -184,13 +241,13 @@ app.post('/api/harness/run', requireLocalWorkspaceAccess, async (req, res) => {
 
 app.get('/api/models', (_req, res) => res.json(models.getModels(db)));
 app.get('/api/models/runtime', (_req, res) => res.json(models.runtimeStatus()));
-app.post('/api/models/import', async (req, res) => {
+app.post('/api/models/import', requireLocalModelManagement, async (req, res) => {
   try {
     const model = await models.registerModel(db, { name: req.body?.name, source: 'folder', modelPath: req.body?.path });
     res.status(201).json({ model: models.getModels(db).find(item => item.id === model.id) });
   } catch (error) { sendError(res, error); }
 });
-app.post('/api/models/scan', async (_req, res) => {
+app.post('/api/models/scan', requireLocalModelManagement, async (_req, res) => {
   const added = [];
   const skipped = [];
   async function walk(directory, depth = 0) {
@@ -216,11 +273,11 @@ app.post('/api/models/scan', async (_req, res) => {
   await walk(models.libraryDir);
   res.json({ models: models.getModels(db), added: [...new Set(added)].length, skipped });
 });
-app.post('/api/huggingface/files', async (req, res) => {
+app.post('/api/huggingface/files', requireLocalModelManagement, async (req, res) => {
   try { res.json({ repoId: req.body?.repoId, ...await models.listHuggingFaceFiles(req.body?.repoId, req.body?.token) }); }
   catch (error) { sendError(res, error, 502); }
 });
-app.post('/api/models/download', (req, res) => {
+app.post('/api/models/download', requireLocalModelManagement, (req, res) => {
   try {
     const job = models.startDownload(db, { repoId: req.body?.repoId, fileName: req.body?.fileName, token: req.body?.token });
     res.status(202).json({ id: job.id, status: job.status });
@@ -232,14 +289,14 @@ app.get('/api/models/download/:id', (req, res) => {
   const { id, repoId, fileName, status, receivedBytes, totalBytes, error, modelId } = job;
   res.json({ id, repoId, fileName, status, receivedBytes, totalBytes, error, modelId });
 });
-app.post('/api/models/:id/activate', async (req, res) => {
+app.post('/api/models/:id/activate', requireLocalModelManagement, async (req, res) => {
   try {
     const result = await models.activateModel(db, req.params.id, runtimeSettings);
     persistRuntimeSettings();
     res.json({ ...result, settings: publicSettings(runtimeSettings) });
   } catch (error) { sendError(res, error, 502); }
 });
-app.delete('/api/models/:id', async (req, res) => {
+app.delete('/api/models/:id', requireLocalModelManagement, async (req, res) => {
   const runtime = models.runtimeStatus();
   if (runtime.modelId === req.params.id) {
     await models.stopRuntime();
@@ -250,7 +307,7 @@ app.delete('/api/models/:id', async (req, res) => {
   if (!changed.changes) return res.status(404).json({ error: 'Model not found.' });
   res.json({ ok: true, filesRetained: true });
 });
-app.post('/api/models/runtime/stop', async (_req, res) => {
+app.post('/api/models/runtime/stop', requireLocalModelManagement, async (_req, res) => {
   const runtime = models.runtimeStatus();
   await models.stopRuntime();
   if (runtimeSettings.baseUrl === runtime.endpoint) runtimeSettings.baseUrl = 'http://127.0.0.1:8080/v1';
@@ -430,7 +487,7 @@ function initializeRuntimeSettings() {
 
 initializeRuntimeSettings();
 inference.ensureLibrary().catch(() => {});
-const server = app.listen(port, process.env.HOST || '127.0.0.1', () => console.log(`Chat Engineering Harness running at http://localhost:${port}`));
+const server = app.listen(port, process.env.HOST || '127.0.0.1', () => console.log(`PatchProof running at http://localhost:${port}`));
 if (resumeModelId && models.runtimeStatus().available) {
   setImmediate(async () => {
     runtimeSettings.baseUrl = 'http://127.0.0.1:8080/v1';
