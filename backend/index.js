@@ -22,6 +22,9 @@ const scrypt = promisify(scryptCallback);
 const app = express();
 const publicDir = path.join(__dirname, '..', 'public');
 const port = Number(process.env.PORT || 3000);
+const host = process.env.ANGCHAT_CLOUD_DEPLOYMENT === 'render' || process.env.NODE_ENV === 'production'
+  ? '0.0.0.0'
+  : process.env.HOST || '127.0.0.1';
 let runtimeSettings = { ...DEFAULTS };
 let resumeModelId = null;
 
@@ -503,7 +506,7 @@ function initializeRuntimeSettings() {
 
 initializeRuntimeSettings();
 inference.ensureLibrary().catch(() => {});
-const server = app.listen(port, process.env.HOST || '127.0.0.1', () => console.log(`AngChat running at http://localhost:${port}`));
+const server = app.listen(port, host, () => console.log(`AngChat listening on ${host}:${port}`));
 if (resumeModelId && models.runtimeStatus().available) {
   setImmediate(async () => {
     runtimeSettings.baseUrl = 'http://127.0.0.1:8080/v1';

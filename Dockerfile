@@ -17,7 +17,6 @@ RUN npm ci --omit=optional --omit=dev \
 FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
-    PORT=3000 \
     CHAT_DB_PATH=/data/chat.db \
     CHAT_WORKSPACE=/app \
     CHAT_SKILLS_DIR=/data/skills \
